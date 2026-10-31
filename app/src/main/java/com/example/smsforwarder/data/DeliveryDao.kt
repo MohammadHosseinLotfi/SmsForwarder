@@ -26,6 +26,12 @@ interface DeliveryDao {
     @Query("UPDATE deliveries SET state = 'CANCELLED' WHERE ruleId = :ruleId AND state IN ('QUEUED', 'WAITING_NETWORK', 'IN_FLIGHT', 'RETRY_WAIT')")
     suspend fun cancelPendingDeliveriesForRule(ruleId: Long)
 
+    @Query("UPDATE deliveries SET ruleNameSnapshot = :newName WHERE ruleNameSnapshot = :oldName")
+    suspend fun updateRuleNameSnapshotByOldName(oldName: String, newName: String)
+
+    @Query("UPDATE deliveries SET ruleNameSnapshot = :newName WHERE ruleId = :ruleId")
+    suspend fun updateRuleNameSnapshotByRuleId(ruleId: Long, newName: String)
+
     @Query("DELETE FROM deliveries")
     suspend fun clearAllDeliveries()
 }

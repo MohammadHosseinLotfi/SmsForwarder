@@ -1,25 +1,24 @@
 package com.example.smsforwarder.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.smsforwarder.data.RuleEntity
 import com.example.smsforwarder.rules.DestinationType
+import com.example.smsforwarder.ui.components.*
+import com.example.smsforwarder.ui.theme.VazirmatnFontFamily
+import com.example.smsforwarder.ui.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RulesScreen(
     rules: List<RuleEntity>,
@@ -31,33 +30,25 @@ fun RulesScreen(
     onShowMiuiGuide: () -> Unit
 ) {
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("مدیریت قوانین انتقال", fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = onShowMiuiGuide) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = "راهنمای تنظیمات شیائومی",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    IconButton(onClick = onAddNewRule) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "افزودن قانون جدید",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            )
-        },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            Surface(
                 onClick = onAddNewRule,
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("قانون جدید") }
-            )
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shadowElevation = 4.dp,
+                modifier = Modifier.height(42.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(KashiIcons.Plus, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Text("قانون جدید", fontFamily = VazirmatnFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     ) { innerPadding ->
         Column(
@@ -66,90 +57,35 @@ fun RulesScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
         ) {
-            // بنر اطلاع‌رسانی تنظیمات شیائومی و پیش‌زمینه
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                ),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PhoneAndroid,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "راهنمای پس‌زمینه شیائومی/MIUI",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "برای دریافت پایدار پیامک‌ها در پس‌زمینه، تنظیمات Autostart را چک کنید.",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    TextButton(onClick = onShowMiuiGuide) {
-                        Text("راهنما", fontSize = 12.sp)
-                    }
-                }
-            }
+            KashiPageHeader(
+                title = "مدیریت قوانین",
+            )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             if (rules.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.MarkAsUnread,
-                            contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = MaterialTheme.colorScheme.outline
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "هیچ قانونی تعریف نشده است",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "برای شروع انتقال هوشمند پیامک‌ها، دکمه «قانون جدید» را بزنید.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
-                }
+                KashiEmptyState(
+                    icon = KashiIcons.Workflow,
+                    title = "هیچ قانونی تعریف نشده است",
+                    description = "برای شروع انتقال هوشمند پیامک‌ها، دکمه «قانون جدید» را بزنید.",
+                    actionLabel = "قانون جدید",
+                    onAction = onAddNewRule
+                )
             } else {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(bottom = 80.dp)
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 84.dp)
                 ) {
                     items(rules, key = { it.id }) { rule ->
-                        RuleCard(
-                            rule = rule,
-                            onToggle = { onToggleRule(rule) },
-                            onEdit = { onEditRule(rule) },
-                            onDuplicate = { onDuplicateRule(rule) },
-                            onDelete = { onDeleteRule(rule) }
-                        )
+                        Box(modifier = Modifier.animateItem()) {
+                            RuleCard(
+                                rule = rule,
+                                onToggle = { onToggleRule(rule) },
+                                onEdit = { onEditRule(rule) },
+                                onDuplicate = { onDuplicateRule(rule) },
+                                onDelete = { onDeleteRule(rule) }
+                            )
+                        }
                     }
                 }
             }
@@ -167,163 +103,242 @@ fun RuleCard(
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
+    val isAllSenders = rule.sender.isBlank() || rule.sender.trim() == "*"
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+    val onSecondaryColor = MaterialTheme.colorScheme.onSecondary
+    val senderBadge = remember(rule.sender, secondaryColor, onSecondaryColor) {
+        if (isAllSenders) {
+            SenderBadgeInfo("همه فرستنده‌ها", secondaryColor, onSecondaryColor)
+        } else {
+            detectSenderBadge(rule.sender)
+        }
+    }
+
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("حذف قانون") },
-            text = { Text("آیا از حذف قانون «${rule.name}» اطمینان دارید؟") },
+            shape = RoundedCornerShape(16.dp),
+            title = {
+                Text(
+                    text = "حذف قانون",
+                    fontFamily = VazirmatnFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "آیا از حذف قانون «${rule.name}» اطمینان دارید؟",
+                    fontFamily = VazirmatnFontFamily,
+                    fontSize = 14.sp
+                )
+            },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteConfirm = false
-                        onDelete()
-                    }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("حذف", color = MaterialTheme.colorScheme.error)
+                    Button(
+                        onClick = {
+                            showDeleteConfirm = false
+                            onDelete()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                    ) {
+                        Text("حذف قانون", fontFamily = VazirmatnFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(
+                        onClick = { showDeleteConfirm = false },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                    ) {
+                        Text("انصراف", fontFamily = VazirmatnFontFamily, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) {
-                    Text("انصراف")
-                }
-            }
+            dismissButton = null
         )
     }
 
-    ElevatedCard(
+    Surface(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = if (rule.enabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        ),
+        color = if (rule.enabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        border = BorderStroke(1.dp, if (rule.enabled) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+        shadowElevation = if (rule.enabled) 2.dp else 0.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
                     Text(
                         text = rule.name,
+                        fontFamily = VazirmatnFontFamily,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         color = if (rule.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
                     )
+
+                    senderBadge?.let { badge ->
+                        Surface(
+                            color = badge.backgroundColor,
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = badge.label,
+                                fontFamily = VazirmatnFontFamily,
+                                color = badge.textColor,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                 }
+
                 Switch(
                     checked = rule.enabled,
-                    onCheckedChange = { onToggle() }
+                    onCheckedChange = { onToggle() },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                        checkedTrackColor = MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier.scale(0.8f)
                 )
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // شروط فرستنده و عبارت
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.PersonSearch,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "فرستنده: ",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = rule.sender,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
+            KashiFlowDiagram(
+                senderText = if (isAllSenders) "همه فرستنده‌ها" else rule.sender.toPersianDigits(),
+                destinationText = rule.destinationAddress.toPersianDigits(),
+                destinationTypeLabel = if (rule.destinationType == DestinationType.URL) "وب‌هوک URL" else "پیامک SMS"
+            )
 
-            if (!rule.containsText.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.FilterList,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.secondary
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "عبارت متنی: ",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "«${rule.containsText}»",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (!rule.containsText.isNullOrBlank()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = KashiIcons.Filter,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "فیلتر: «${rule.containsText.toPersianDigits()}»",
+                                fontFamily = VazirmatnFontFamily,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
+                }
+
+                if (rule.destinationType == DestinationType.SMS) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = KashiIcons.SimCard,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "سیم‌کارت ${(rule.outgoingSlotIndex + 1).toPersianDigits()}",
+                                fontFamily = VazirmatnFontFamily,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // نوع مقصد و نشانی
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val icon = if (rule.destinationType == DestinationType.URL) Icons.Default.Http else Icons.Default.Sms
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.tertiary
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                SuggestionChip(
-                    onClick = { },
-                    label = { Text(if (rule.destinationType == DestinationType.URL) "URL" else "SMS", fontSize = 11.sp) },
-                    modifier = Modifier.height(24.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = rule.destinationAddress,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
-                )
-            }
-
-            if (rule.destinationType == DestinationType.SMS) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "سیم‌کارت خروجی: سیم ${rule.outgoingSlotIndex + 1}",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 10.dp),
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onEdit) {
+                TextButton(
+                    onClick = onEdit,
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
                     Icon(
-                        imageVector = Icons.Default.Edit,
+                        imageVector = KashiIcons.Edit,
                         contentDescription = "ویرایش",
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(16.dp)
                     )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("ویرایش", fontFamily = VazirmatnFontFamily, fontSize = 13.sp)
                 }
-                IconButton(onClick = onDuplicate) {
+
+                TextButton(
+                    onClick = onDuplicate,
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
                     Icon(
-                        imageVector = Icons.Default.ContentCopy,
+                        imageVector = KashiIcons.Copy,
                         contentDescription = "کپی",
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(16.dp)
                     )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("کپی", fontFamily = VazirmatnFontFamily, fontSize = 13.sp)
                 }
-                IconButton(onClick = { showDeleteConfirm = true }) {
+
+                TextButton(
+                    onClick = { showDeleteConfirm = true },
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
                     Icon(
-                        imageVector = Icons.Default.Delete,
+                        imageVector = KashiIcons.Trash,
                         contentDescription = "حذف",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(16.dp)
                     )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("حذف", fontFamily = VazirmatnFontFamily, fontSize = 13.sp)
                 }
             }
         }

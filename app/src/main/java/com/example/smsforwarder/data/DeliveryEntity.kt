@@ -29,3 +29,7 @@ data class DeliveryEntity(
     val lastAttemptAt: Long? = null,
     val errorMessage: String? = null
 )
+
+private val DeliveryEntity.httpCode: Int? get() = httpStatus
+private val DeliveryEntity.sentAtMillis: Long get() = lastAttemptAt
+private val DeliveryEntity.smsText: String get() = contentRaw

@@ -12,12 +12,15 @@ object RuleMatcher {
     fun matches(rule: Rule, rawSender: String, rawContent: String): Boolean {
         if (!rule.enabled) return false
 
-        // ۱. بررسی شرط فرستنده
-        val normalizedRuleSender = normalizeSender(rule.sender)
-        val normalizedIncomingSender = normalizeSender(rawSender)
+        // ۱. بررسی شرط فرستنده (خالی یا * یعنی همه فرستنده‌ها)
+        val ruleSenderTrimmed = rule.sender.trim()
+        if (ruleSenderTrimmed.isNotEmpty() && ruleSenderTrimmed != "*") {
+            val normalizedRuleSender = normalizeSender(ruleSenderTrimmed)
+            val normalizedIncomingSender = normalizeSender(rawSender)
 
-        if (normalizedRuleSender != normalizedIncomingSender) {
-            return false
+            if (normalizedRuleSender != normalizedIncomingSender) {
+                return false
+            }
         }
 
         // ۲. بررسی شرط عبارت داخل متن (در صورت تعیین شدن)

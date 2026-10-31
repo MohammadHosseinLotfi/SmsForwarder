@@ -40,6 +40,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (ruleEntity.id == 0L) {
                 ruleDao.insertRule(ruleEntity)
             } else {
+                val oldRule = rules.value.find { it.id == ruleEntity.id }
+                if (oldRule != null && oldRule.name != ruleEntity.name) {
+                    deliveryDao.updateRuleNameSnapshotByRuleId(ruleEntity.id, ruleEntity.name)
+                    deliveryDao.updateRuleNameSnapshotByOldName(oldRule.name, ruleEntity.name)
+                }
                 ruleDao.updateRule(ruleEntity)
             }
         }
@@ -110,7 +115,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val isMatched = RuleMatcher.matches(rule, testSender, testContent)
         val reason = if (isMatched) {
-            "شرط فرستنده و عبارت داخل متن تطبیق دارد."
+            if (ruleEntity.sender.isBlank() || ruleEntity.sender.trim() == "*") {
+                "فرستنده: همه فرستنده‌ها (بدون محدودیت)" + if (!ruleEntity.containsText.isNullOrBlank()) " و عبارت متنی تطبیق دارد." else "."
+            } else {
+                "شرط فرستنده و عبارت داخل متن تطبیق دارد."
+            }
         } else {
             "فرستنده یا عبارت داخل متن با شرط قانون تطبیق ندارد."
         }

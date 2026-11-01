@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 
 class SmsReceiver : BroadcastReceiver() {
 
@@ -81,6 +82,7 @@ class SmsReceiver : BroadcastReceiver() {
                                 ruleNameSnapshot = rule.name,
                                 eventFingerprint = fingerprint,
                                 senderRaw = sender,
+                                contentRaw = fullBody,
                                 destinationType = rule.destinationType,
                                 destinationAddress = rule.destinationAddress,
                                 renderedPayload = renderedBody,
@@ -96,20 +98,26 @@ class SmsReceiver : BroadcastReceiver() {
 
                             when (rule.destinationType) {
                                 DestinationType.URL -> {
-                                    val quickResult = HttpSender.sendPost(rule.destinationAddress, renderedBody)
+                                    val quickResult = HttpSender.sendPost(rule.destinationAddress, renderedBody, isQuickAttempt = true)
                                     if (quickResult is HttpSender.Result.Success) {
                                         Log.d("SmsReceiver", "ارسال سریع HTTP با موفقیت انجام شد (کد ${quickResult.code})")
-                                        deliveryDao.updateDeliveryStatus(insertedId, DeliveryState.SUCCEEDED, System.currentTimeMillis())
+                                        deliveryDao.updateDeliveryStatus(
+                                            id = insertedId,
+                                            state = DeliveryState.SUCCEEDED,
+                                            attemptTime = System.currentTimeMillis(),
+                                            httpStatusCode = quickResult.code
+                                        )
                                     } else {
                                         Log.w("SmsReceiver", "ارسال سریع HTTP ناموفق بود؛ ثبت در صف WorkManager")
                                         val failureMsg = (quickResult as? HttpSender.Result.Failure)?.message
                                         deliveryDao.updateDeliveryStatus(
-                                            insertedId,
-                                            DeliveryState.WAITING_NETWORK,
-                                            System.currentTimeMillis(),
-                                            failureMsg
+                                            id = insertedId,
+                                            state = DeliveryState.WAITING_NETWORK,
+                                            attemptTime = System.currentTimeMillis(),
+                                            httpStatusCode = quickResult.code,
+                                            error = failureMsg
                                         )
-                                        schedulePersistentWork(context, insertedId, requiresNetwork = true)
+                                        schedulePersistentWork(context, insertedId, rule.id, requiresNetwork = true)
                                     }
                                 }
                                 DestinationType.SMS -> {
@@ -122,19 +130,23 @@ class SmsReceiver : BroadcastReceiver() {
                                     when (smsResult) {
                                         is SmsSender.SmsResult.Success -> {
                                             Log.d("SmsReceiver", "ارسال سریع پیامک با موفقیت انجام شد")
-                                            deliveryDao.updateDeliveryStatus(insertedId, DeliveryState.SUCCEEDED, System.currentTimeMillis())
+                                            deliveryDao.updateDeliveryStatus(
+                                                id = insertedId,
+                                                state = DeliveryState.SUCCEEDED,
+                                                attemptTime = System.currentTimeMillis()
+                                            )
                                         }
                                         is SmsSender.SmsResult.Failure -> {
                                             Log.w("SmsReceiver", "ارسال پیامک ناموفق بود: ${smsResult.message}")
                                             val targetState = if (smsResult.isBlocked) DeliveryState.BLOCKED else DeliveryState.RETRY_WAIT
                                             deliveryDao.updateDeliveryStatus(
-                                                insertedId,
-                                                targetState,
-                                                System.currentTimeMillis(),
-                                                smsResult.message
+                                                id = insertedId,
+                                                state = targetState,
+                                                attemptTime = System.currentTimeMillis(),
+                                                error = smsResult.message
                                             )
                                             if (!smsResult.isBlocked) {
-                                                schedulePersistentWork(context, insertedId, requiresNetwork = false)
+                                                schedulePersistentWork(context, insertedId, rule.id, requiresNetwork = false)
                                             }
                                         }
                                     }
@@ -151,7 +163,7 @@ class SmsReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun schedulePersistentWork(context: Context, deliveryId: Long, requiresNetwork: Boolean) {
+    private fun schedulePersistentWork(context: Context, deliveryId: Long, ruleId: Long, requiresNetwork: Boolean) {
         val constraintsBuilder = Constraints.Builder()
         if (requiresNetwork) {
             constraintsBuilder.setRequiredNetworkType(NetworkType.CONNECTED)
@@ -159,10 +171,17 @@ class SmsReceiver : BroadcastReceiver() {
 
         val workRequest = OneTimeWorkRequestBuilder<DeliveryWorker>()
             .setConstraints(constraintsBuilder.build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.SECONDS)
+            .addTag("delivery_$deliveryId")
+            .addTag("rule_$ruleId")
             .setInputData(workDataOf("deliveryId" to deliveryId))
             .build()
 
-        WorkManager.getInstance(context).enqueue(workRequest)
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "delivery_$deliveryId",
+            ExistingWorkPolicy.KEEP,
+            workRequest
+        )
     }
 
     private fun generateFingerprint(sender: String, body: String, timestamp: Long): String {

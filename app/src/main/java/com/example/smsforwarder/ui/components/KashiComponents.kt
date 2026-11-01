@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -14,16 +15,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.smsforwarder.rules.DestinationType
 import com.example.smsforwarder.ui.theme.*
 import com.example.smsforwarder.ui.util.*
 import kotlinx.coroutines.delay
@@ -227,7 +230,7 @@ fun KashiTopBar(
 }
 
 /**
- * ۱. کاشی اسپلاش لودر کوتاه (~۹۵۰ میلی‌ثانیه) با انیمیشن موزاییک کاشی ۲x۲
+ * ۱. کاشی اسپلاش لودر کوتاه (~۹۵۰ میلی‌ثانیه) با انیمیشن رادار عاری از Recomposition
  */
 @Composable
 fun KashiSplashLoader(
@@ -251,7 +254,7 @@ fun KashiSplashLoader(
         label = "wave1"
     )
 
-    // موج راداری دوم (با اختلاف فاز برای پیوستگی بصری)
+    // موج راداری دوم (با اختلاف فاز)
     val wave2Progress by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -273,6 +276,9 @@ fun KashiSplashLoader(
         label = "core_scale"
     )
 
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -289,48 +295,53 @@ fun KashiSplashLoader(
                 contentAlignment = Alignment.Center
             ) {
                 // حلقه موج اول (فیروزه‌ای)
-                Surface(
+                Box(
                     modifier = Modifier
                         .size(72.dp)
-                        .scale(1f + (wave1Progress * 0.9f)),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = (1f - wave1Progress) * 0.22f),
-                    border = BorderStroke(
-                        width = 1.5.dp,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = (1f - wave1Progress) * 0.65f)
-                    )
-                ) {}
+                        .graphicsLayer {
+                            val scale = 1f + (wave1Progress * 0.9f)
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = (1f - wave1Progress)
+                        }
+                        .clip(CircleShape)
+                        .background(primaryColor.copy(alpha = 0.22f))
+                        .border(1.5.dp, primaryColor.copy(alpha = 0.65f), CircleShape)
+                )
 
                 // حلقه موج دوم (لاجوردی)
-                Surface(
+                Box(
                     modifier = Modifier
                         .size(72.dp)
-                        .scale(1f + (wave2Progress * 0.9f)),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondary.copy(alpha = (1f - wave2Progress) * 0.16f),
-                    border = BorderStroke(
-                        width = 1.5.dp,
-                        color = MaterialTheme.colorScheme.secondary.copy(alpha = (1f - wave2Progress) * 0.55f)
-                    )
-                ) {}
+                        .graphicsLayer {
+                            val scale = 1f + (wave2Progress * 0.9f)
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = (1f - wave2Progress)
+                        }
+                        .clip(CircleShape)
+                        .background(secondaryColor.copy(alpha = 0.16f))
+                        .border(1.5.dp, secondaryColor.copy(alpha = 0.55f), CircleShape)
+                )
 
                 // دایره مرکزی آیکون پیامک
-                Surface(
+                Box(
                     modifier = Modifier
                         .size(74.dp)
-                        .scale(coreScale),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary,
-                    shadowElevation = 6.dp
+                        .graphicsLayer {
+                            scaleX = coreScale
+                            scaleY = coreScale
+                        }
+                        .clip(CircleShape)
+                        .background(primaryColor),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = KashiIcons.ChatSquare,
-                            contentDescription = "SMS Forwarder",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(34.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = KashiIcons.ChatSquare,
+                        contentDescription = "SMS Forwarder",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(34.dp)
+                    )
                 }
 
                 // بج کوچک نشانگر انتقال در لبه پایین هسته
@@ -506,6 +517,8 @@ fun KashiPersianInput(
     trailingBadge: SenderBadgeInfo? = null,
     onBadgeClick: (() -> Unit)? = null
 ) {
+    val placeholderPersian = remember(placeholder) { placeholder.toPersianDigits() }
+
     val autoBadge = remember(value, kind, trailingBadge) {
         if (trailingBadge != null) return@remember trailingBadge
         when (kind) {
@@ -596,7 +609,7 @@ fun KashiPersianInput(
                 }
                 onValueChange(processed)
             },
-            placeholder = { Text(placeholder.toPersianDigits(), fontFamily = VazirmatnFontFamily, fontSize = 14.sp) },
+            placeholder = { Text(placeholderPersian, fontFamily = VazirmatnFontFamily, fontSize = 14.sp) },
             singleLine = singleLine,
             minLines = minLines,
             isError = liveError != null,
@@ -794,7 +807,11 @@ fun KashiStatusPill(
             Box(
                 modifier = Modifier
                     .size(8.dp)
-                    .scale(if (isActive) alphaAnim else 1f)
+                    .graphicsLayer {
+                        val s = if (isActive) alphaAnim else 1f
+                        scaleX = s
+                        scaleY = s
+                    }
                     .clip(CircleShape)
                     .background(if (isActive) KashiSuccessGreen else Color.Gray)
             )
@@ -889,7 +906,8 @@ fun KashiBanner(
 fun KashiFlowDiagram(
     senderText: String,
     destinationText: String,
-    destinationTypeLabel: String
+    destinationTypeLabel: String,
+    isUrl: Boolean = false
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -934,15 +952,29 @@ fun KashiFlowDiagram(
                 horizontalAlignment = Alignment.End
             ) {
                 Text("مقصد ($destinationTypeLabel)", fontFamily = VazirmatnFontFamily, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(
-                    text = destinationText,
-                    fontFamily = VazirmatnFontFamily,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.secondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                if (isUrl) {
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                        Text(
+                            text = destinationText,
+                            fontFamily = VazirmatnFontFamily,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                } else {
+                    Text(
+                        text = destinationText,
+                        fontFamily = VazirmatnFontFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
@@ -964,6 +996,21 @@ fun KashiJalaliDatePickerDialog(
     var selectedDay by remember { mutableIntStateOf(initialDate?.third ?: todayJalali.day) }
 
     val daysInMonth = remember(currentYear, currentMonth) { jalaliDaysInMonth(currentYear, currentMonth) }
+    val firstDayOffset = remember(currentYear, currentMonth) { getJalaliFirstDayOfWeek(currentYear, currentMonth) }
+
+    LaunchedEffect(daysInMonth) {
+        if (selectedDay > daysInMonth) {
+            selectedDay = daysInMonth
+        }
+    }
+
+    val chunkedWeeks = remember(daysInMonth, firstDayOffset) {
+        val days = (1..daysInMonth).toList()
+        val itemsList = mutableListOf<Int?>()
+        repeat(firstDayOffset) { itemsList.add(null) }
+        days.forEach { itemsList.add(it) }
+        itemsList.chunked(7)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1091,45 +1138,47 @@ fun KashiJalaliDatePickerDialog(
                     }
                 }
 
-                val daysList = (1..daysInMonth).toList()
-                val chunkedDays = daysList.chunked(7)
-
                 Column(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    chunkedDays.forEach { week ->
+                    chunkedWeeks.forEach { week ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceAround
                         ) {
-                            week.forEach { day ->
-                                val isSelected = day == selectedDay
-                                val isToday = currentYear == todayJalali.year && currentMonth == todayJalali.month && day == todayJalali.day
+                            week.forEach { dayOrNull ->
+                                if (dayOrNull == null) {
+                                    Spacer(modifier = Modifier.size(36.dp))
+                                } else {
+                                    val day = dayOrNull
+                                    val isSelected = day == selectedDay
+                                    val isToday = currentYear == todayJalali.year && currentMonth == todayJalali.month && day == todayJalali.day
 
-                                Surface(
-                                    onClick = { selectedDay = day },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = when {
-                                        isSelected -> MaterialTheme.colorScheme.primary
-                                        isToday -> MaterialTheme.colorScheme.primaryContainer
-                                        else -> Color.Transparent
-                                    },
-                                    border = if (isToday && !isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = day.toPersianDigits(),
-                                            fontFamily = VazirmatnFontFamily,
-                                            fontSize = 13.sp,
-                                            fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
-                                            color = when {
-                                                isSelected -> MaterialTheme.colorScheme.onPrimary
-                                                isToday -> MaterialTheme.colorScheme.primary
-                                                else -> MaterialTheme.colorScheme.onSurface
-                                            }
-                                        )
+                                    Surface(
+                                        onClick = { selectedDay = day },
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = when {
+                                            isSelected -> MaterialTheme.colorScheme.primary
+                                            isToday -> MaterialTheme.colorScheme.primaryContainer
+                                            else -> Color.Transparent
+                                        },
+                                        border = if (isToday && !isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = day.toPersianDigits(),
+                                                fontFamily = VazirmatnFontFamily,
+                                                fontSize = 13.sp,
+                                                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
+                                                color = when {
+                                                    isSelected -> MaterialTheme.colorScheme.onPrimary
+                                                    isToday -> MaterialTheme.colorScheme.primary
+                                                    else -> MaterialTheme.colorScheme.onSurface
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }

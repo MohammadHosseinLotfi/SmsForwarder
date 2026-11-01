@@ -82,18 +82,18 @@ fun LogsScreen(
         }
     }
 
-    val succeededCount = remember(deliveries) { deliveries.count { it.state == DeliveryState.SUCCEEDED } }
-    val pendingCount = remember(deliveries) {
-        deliveries.count {
-            it.state == DeliveryState.QUEUED || it.state == DeliveryState.WAITING_NETWORK ||
-                    it.state == DeliveryState.IN_FLIGHT || it.state == DeliveryState.RETRY_WAIT
+    val (succeededCount, pendingCount, errorCount) = remember(deliveries) {
+        var succ = 0
+        var pend = 0
+        var err = 0
+        for (d in deliveries) {
+            when (d.state) {
+                DeliveryState.SUCCEEDED -> succ++
+                DeliveryState.QUEUED, DeliveryState.WAITING_NETWORK, DeliveryState.IN_FLIGHT, DeliveryState.RETRY_WAIT -> pend++
+                DeliveryState.BLOCKED, DeliveryState.NEEDS_REVIEW, DeliveryState.UNKNOWN, DeliveryState.CANCELLED -> err++
+            }
         }
-    }
-    val errorCount = remember(deliveries) {
-        deliveries.count {
-            it.state == DeliveryState.BLOCKED || it.state == DeliveryState.NEEDS_REVIEW ||
-                    it.state == DeliveryState.UNKNOWN || it.state == DeliveryState.CANCELLED
-        }
+        Triple(succ, pend, err)
     }
 
     val filteredDeliveries = remember(deliveries, activeFilter, selectedDate, selectedRuleName) {
@@ -450,7 +450,7 @@ fun LogsScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(top = 2.dp, bottom = 84.dp)
                 ) {
-                    items(filteredDeliveries, key = { it.deliveryId }) { delivery ->
+                    items(filteredDeliveries, key = { it.deliveryId }, contentType = { "log_card" }) { delivery ->
                         Box(modifier = Modifier.animateItem()) {
                             LogCard(
                                 delivery = delivery,
@@ -702,19 +702,6 @@ private fun DeliveryState.toDestinationStatusUi(): DestinationStatusUi = when (t
         DestinationStatusUi("ناموفق", KashiIcons.Error, KashiErrorRose, KashiErrorContainer)
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// ⚠️ BINDING POINT — the ONLY 3 lines that touch DeliveryEntity fields I could not see
-// (DeliveryEntity.kt was not uploaded). Point each getter at the real column.
-// If the entity does not store one of them yet, it has to be added (Room migration) and
-// written by the sender worker; the UI cannot invent it.
-// ───────────────────────────────────────────────────────────────────────────
-/** HTTP response code of the last attempt (null for SMS destinations / not sent yet). */
-private val DeliveryEntity.httpCode: Int? get() = httpStatus
-/** Epoch millis of the last send attempt to the destination. */
-private val DeliveryEntity.sentAtMillis: Long get() = lastAttemptAt
-/** The original received SMS text. */
-private val DeliveryEntity.smsText: String get() = contentRaw
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun KashiReceiptDialog(
@@ -740,7 +727,9 @@ fun KashiReceiptDialog(
     }
 
     val jalali = remember(delivery.receivedAt) { timestampToJalali(delivery.receivedAt) }
-    val sentJalali = remember(delivery.sentAtMillis) { timestampToJalali(delivery.sentAtMillis) }
+    val sentJalaliText = remember(delivery.lastAttemptAt) {
+        delivery.lastAttemptAt?.let { timestampToJalali(it).fullFormatted } ?: "هنوز ارسال نشده"
+    }
     val amount = remember(delivery.renderedPayload) { extractMoneyAmount(delivery.renderedPayload) }
     val status = remember(delivery.state) { delivery.state.toDestinationStatusUi() }
 
@@ -882,7 +871,7 @@ fun KashiReceiptDialog(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            delivery.httpCode?.let { code ->
+                            delivery.httpStatusCode?.let { code ->
                                 Surface(
                                     color = MaterialTheme.colorScheme.surfaceVariant,
                                     shape = RoundedCornerShape(6.dp)
@@ -919,7 +908,7 @@ fun KashiReceiptDialog(
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
-                            text = sentJalali.fullFormatted,
+                            text = sentJalaliText,
                             fontFamily = VazirmatnFontFamily,
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1034,7 +1023,7 @@ fun KashiReceiptDialog(
                     SelectionContainer {
                         Text(
                             // shown exactly as received (OTP digits are NOT converted)
-                            text = delivery.smsText,
+                            text = delivery.contentRaw,
                             fontFamily = VazirmatnFontFamily,
                             fontSize = 14.sp,
                             lineHeight = 24.sp,
@@ -1053,7 +1042,7 @@ fun KashiReceiptDialog(
                 ) {
                     Button(
                         onClick = {
-                            clipboardManager.setText(AnnotatedString(delivery.smsText))
+                            clipboardManager.setText(AnnotatedString(delivery.contentRaw))
                             // Android 13+ already shows its own "copied" confirmation
                             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
                                 Toast.makeText(context, "متن پیامک کپی شد", Toast.LENGTH_SHORT).show()
@@ -1106,7 +1095,9 @@ private fun KashiRequestDetailsSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val isUrl = delivery.destinationType == DestinationType.URL
-    val sentJalali = remember(delivery.sentAtMillis) { timestampToJalali(delivery.sentAtMillis) }
+    val sentJalaliText = remember(delivery.lastAttemptAt) {
+        delivery.lastAttemptAt?.let { timestampToJalali(it).fullFormatted } ?: "هنوز ارسال نشده"
+    }
 
     val closeSheet: () -> Unit = {
         scope.launch { sheetState.hide() }.invokeOnCompletion {
@@ -1148,7 +1139,7 @@ private fun KashiRequestDetailsSheet(
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
 
-                RequestDetailField(label = "زمان ارسال", value = sentJalali.fullFormatted)
+                RequestDetailField(label = "زمان ارسال", value = sentJalaliText)
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
 
                 Row(

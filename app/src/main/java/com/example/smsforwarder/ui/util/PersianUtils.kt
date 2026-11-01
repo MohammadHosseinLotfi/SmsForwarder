@@ -1,11 +1,16 @@
 package com.example.smsforwarder.ui.util
 
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
+import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.util.LinkedHashMap
 import java.util.Locale
 
+@Immutable
 data class JalaliDate(
     val year: Int,
     val month: Int,
@@ -35,6 +40,34 @@ val PERSIAN_MONTH_NAMES = listOf(
     "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"
 )
 
+private val MONEY_REGEX_1 = Regex("""(?:مبلغ|واریز|برداشت|مانده|انتقال)[:\s]*([0-9][0-9,٬.]*)\s*(ریال|تومان|تومن)?""", RegexOption.IGNORE_CASE)
+private val MONEY_REGEX_2 = Regex("""([0-9]{1,3}(?:[,٬.][0-9]{3})+)\s*(ریال|تومان|تومن)?""")
+private val NON_DIGIT_REGEX = Regex("[^0-9]")
+
+private val MCI_PREFIXES = setOf("0910", "0911", "0912", "0913", "0914", "0915", "0916", "0917", "0918", "0919", "0990", "0991", "0992", "0993", "0994")
+private val MTN_PREFIXES = setOf("0930", "0933", "0935", "0936", "0937", "0938", "0939", "0901", "0902", "0903", "0904", "0905", "0941")
+private val RIGHTEL_PREFIXES = setOf("0920", "0921", "0922", "0923")
+
+private class SimpleLruCache<K, V>(private val maxSize: Int) {
+    private val map = object : LinkedHashMap<K, V>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean {
+            return size > maxSize
+        }
+    }
+
+    @Synchronized
+    fun get(key: K): V? = map[key]
+
+    @Synchronized
+    fun put(key: K, value: V) {
+        map[key] = value
+    }
+}
+
+private val jalaliCache = SimpleLruCache<Long, JalaliDate>(512)
+private val moneyCache = SimpleLruCache<String, String>(256)
+private const val NO_MONEY_SENTINEL = "<NONE>"
+
 fun isJalaliLeapYear(year: Int): Boolean {
     val r = (((year - 474) % 2820) + 474 + 38) * 682
     return (r % 2816) < 682
@@ -55,12 +88,22 @@ fun getPersianMonthName(month: Int): String {
 
 fun extractMoneyAmount(text: String): String? {
     if (text.isBlank()) return null
+    val cached = moneyCache.get(text)
+    if (cached != null) {
+        return if (cached == NO_MONEY_SENTINEL) null else cached
+    }
+
+    val result = computeExtractMoneyAmount(text)
+    moneyCache.put(text, result ?: NO_MONEY_SENTINEL)
+    return result
+}
+
+private fun computeExtractMoneyAmount(text: String): String? {
     val norm = text.toEnglishDigits()
 
-    val regex1 = Regex("""(?:مبلغ|واریز|برداشت|مانده|انتقال)[:\s]*([0-9][0-9,٬.]*)\s*(ریال|تومان|تومن)?""", RegexOption.IGNORE_CASE)
-    val match1 = regex1.find(norm)
+    val match1 = MONEY_REGEX_1.find(norm)
     if (match1 != null) {
-        val rawNum = match1.groupValues[1].replace(Regex("[^0-9]"), "")
+        val rawNum = match1.groupValues[1].replace(NON_DIGIT_REGEX, "")
         var unit = match1.groupValues.getOrNull(2)?.ifBlank { null } ?: "ریال"
         if (unit == "تومن") unit = "تومان"
         val valLong = rawNum.toLongOrNull()
@@ -70,10 +113,9 @@ fun extractMoneyAmount(text: String): String? {
         }
     }
 
-    val regex2 = Regex("""([0-9]{1,3}(?:[,٬.][0-9]{3})+)\s*(ریال|تومان|تومن)?""")
-    val match2 = regex2.find(norm)
+    val match2 = MONEY_REGEX_2.find(norm)
     if (match2 != null) {
-        val rawNum = match2.groupValues[1].replace(Regex("[^0-9]"), "")
+        val rawNum = match2.groupValues[1].replace(NON_DIGIT_REGEX, "")
         var unit = match2.groupValues.getOrNull(2)?.ifBlank { null } ?: "ریال"
         if (unit == "تومن") unit = "تومان"
         val valLong = rawNum.toLongOrNull()
@@ -87,6 +129,9 @@ fun extractMoneyAmount(text: String): String? {
 }
 
 fun timestampToJalali(timestamp: Long): JalaliDate {
+    val cached = jalaliCache.get(timestamp)
+    if (cached != null) return cached
+
     val zdt = ZonedDateTime.ofInstant(Instant.ofEpochMilli(timestamp), ZoneId.systemDefault())
     val gY = zdt.year
     val gM = zdt.monthValue
@@ -136,13 +181,79 @@ fun timestampToJalali(timestamp: Long): JalaliDate {
     val monthName = PERSIAN_MONTH_NAMES[jm - 1]
     val timeStr = String.format(Locale.US, "%02d:%02d:%02d", hour, minute, second).toPersianDigits()
 
-    return JalaliDate(
+    val result = JalaliDate(
         year = jy,
         month = jm,
         day = jd,
         monthName = monthName,
         hourMinuteSecond = timeStr
     )
+    jalaliCache.put(timestamp, result)
+    return result
+}
+
+fun jalaliToGregorian(jy: Int, jm: Int, jd: Int): IntArray {
+    val jy1 = jy - 979
+    val jm1 = jm - 1
+    val jd1 = jd - 1
+
+    var jDayNo = 365 * jy1 + (jy1 / 33) * 8 + ((jy1 % 33) + 3) / 4
+    for (i in 0 until jm1) {
+        jDayNo += if (i < 6) 31 else 30
+    }
+    jDayNo += jd1
+
+    var gDayNo = jDayNo + 79
+
+    var gy = 1600 + 400 * (gDayNo / 146097)
+    gDayNo %= 146097
+
+    var leap = true
+    if (gDayNo >= 36525) {
+        gDayNo--
+        gy += 100 * (gDayNo / 36524)
+        gDayNo %= 36524
+
+        if (gDayNo >= 365) {
+            gDayNo++
+        } else {
+            leap = false
+        }
+    }
+
+    gy += 4 * (gDayNo / 1461)
+    gDayNo %= 1461
+
+    if (gDayNo >= 366) {
+        leap = false
+        gDayNo--
+        gy += gDayNo / 365
+        gDayNo %= 365
+    }
+
+    val gDaysInMonth = intArrayOf(0, 31, if (leap) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+    var gm = 0
+    while (gDayNo >= gDaysInMonth[gm + 1]) {
+        gDayNo -= gDaysInMonth[gm + 1]
+        gm++
+    }
+    val gd = gDayNo + 1
+    return intArrayOf(gy, gm + 1, gd)
+}
+
+fun getJalaliFirstDayOfWeek(year: Int, month: Int): Int {
+    val gDate = jalaliToGregorian(year, month, 1)
+    val localDate = LocalDate.of(gDate[0], gDate[1], gDate[2])
+    return when (localDate.dayOfWeek) {
+        DayOfWeek.SATURDAY -> 0
+        DayOfWeek.SUNDAY -> 1
+        DayOfWeek.MONDAY -> 2
+        DayOfWeek.TUESDAY -> 3
+        DayOfWeek.WEDNESDAY -> 4
+        DayOfWeek.THURSDAY -> 5
+        DayOfWeek.FRIDAY -> 6
+        null -> 0
+    }
 }
 
 fun String.toPersianDigits(): String {
@@ -196,6 +307,7 @@ fun String.fixPersianText(): String {
     return this.replace('ي', 'ی').replace('ك', 'ک')
 }
 
+@Immutable
 data class SenderBadgeInfo(
     val label: String,
     val backgroundColor: Color,
@@ -235,7 +347,7 @@ fun detectSenderBadge(sender: String): SenderBadgeInfo? {
 }
 
 fun detectMobileOperator(number: String): String? {
-    val norm = number.toEnglishDigits().replace(Regex("[^0-9]"), "")
+    val norm = number.toEnglishDigits().replace(NON_DIGIT_REGEX, "")
     val target = when {
         norm.startsWith("989") -> "09" + norm.substring(3)
         norm.startsWith("9") -> "0" + norm
@@ -243,10 +355,10 @@ fun detectMobileOperator(number: String): String? {
     }
     if (target.length < 4) return null
     val prefix4 = target.take(4)
-    return when {
-        prefix4 in listOf("0910", "0911", "0912", "0913", "0914", "0915", "0916", "0917", "0918", "0919", "0990", "0991", "0992", "0993", "0994") -> "همراه اول"
-        prefix4 in listOf("0930", "0933", "0935", "0936", "0937", "0938", "0939", "0901", "0902", "0903", "0904", "0905", "0941") -> "ایرانسل"
-        prefix4 in listOf("0920", "0921", "0922", "0923") -> "رایتل"
+    return when (prefix4) {
+        in MCI_PREFIXES -> "همراه اول"
+        in MTN_PREFIXES -> "ایرانسل"
+        in RIGHTEL_PREFIXES -> "رایتل"
         else -> null
     }
 }

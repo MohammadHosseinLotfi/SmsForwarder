@@ -18,17 +18,27 @@ object HttpSender {
         .followSslRedirects(false)
         .build()
 
+    private val quickClient = client.newBuilder()
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
+        .writeTimeout(4, TimeUnit.SECONDS)
+        .callTimeout(5, TimeUnit.SECONDS)
+        .build()
+
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
     sealed class Result {
-        data class Success(val code: Int) : Result()
-        data class Failure(val code: Int?, val message: String, val isRetryable: Boolean) : Result()
+        abstract val code: Int?
+
+        data class Success(override val code: Int) : Result()
+        data class Failure(override val code: Int?, val message: String, val isRetryable: Boolean) : Result()
     }
 
     /**
      * ارسال POST JSON به URL مشخص‌شده
      */
-    fun sendPost(url: String, jsonPayload: String): Result {
+    fun sendPost(url: String, jsonPayload: String, isQuickAttempt: Boolean = false): Result {
+        val targetClient = if (isQuickAttempt) quickClient else client
         return try {
             val body = jsonPayload.toRequestBody(JSON_MEDIA_TYPE)
             val request = Request.Builder()
@@ -36,7 +46,7 @@ object HttpSender {
                 .post(body)
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            targetClient.newCall(request).execute().use { response ->
                 when (response.code) {
                     in 200..299 -> Result.Success(response.code)
                     in 300..399 -> Result.Failure(response.code, "ریدایرکت مجاز نیست", isRetryable = false)

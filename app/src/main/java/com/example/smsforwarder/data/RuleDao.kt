@@ -20,6 +20,15 @@ interface RuleDao {
     @Update
     suspend fun updateRule(rule: RuleEntity)
 
+    @Transaction
+    suspend fun updateRuleAndSnapshots(ruleEntity: RuleEntity, oldName: String?, deliveryDao: DeliveryDao) {
+        if (oldName != null && oldName != ruleEntity.name) {
+            deliveryDao.updateRuleNameSnapshotByRuleId(ruleEntity.id, ruleEntity.name)
+            deliveryDao.updateRuleNameSnapshotByOldName(oldName, ruleEntity.name)
+        }
+        updateRule(ruleEntity)
+    }
+
     @Delete
     suspend fun deleteRule(rule: RuleEntity)
 

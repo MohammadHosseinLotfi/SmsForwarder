@@ -14,8 +14,17 @@ interface DeliveryDao {
     @Query("SELECT * FROM deliveries ORDER BY receivedAt DESC")
     fun getAllDeliveriesFlow(): Flow<List<DeliveryEntity>>
 
-    @Query("UPDATE deliveries SET state = :state, attemptCount = attemptCount + 1, lastAttemptAt = :attemptTime, errorMessage = :error WHERE deliveryId = :id")
-    suspend fun updateDeliveryStatus(id: Long, state: DeliveryState, attemptTime: Long, error: String? = null)
+    @Query("UPDATE deliveries SET state = :state, attemptCount = attemptCount + 1, lastAttemptAt = :attemptTime, httpStatusCode = COALESCE(:httpStatusCode, httpStatusCode), errorMessage = :error WHERE deliveryId = :id")
+    suspend fun updateDeliveryStatus(
+        id: Long,
+        state: DeliveryState,
+        attemptTime: Long,
+        httpStatusCode: Int? = null,
+        error: String? = null
+    )
+
+    @Query("UPDATE deliveries SET state = 'QUEUED', errorMessage = null WHERE deliveryId = :id")
+    suspend fun resetDeliveryForResend(id: Long)
 
     @Query("UPDATE deliveries SET state = 'CANCELLED' WHERE deliveryId = :id")
     suspend fun cancelDelivery(id: Long)

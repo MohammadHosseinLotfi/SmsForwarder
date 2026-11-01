@@ -1,11 +1,15 @@
 package com.example.smsforwarder.ui
 
 import android.app.Application
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.*
 import com.example.smsforwarder.data.AppDatabase
 import com.example.smsforwarder.data.DeliveryEntity
 import com.example.smsforwarder.data.RuleEntity
+import com.example.smsforwarder.delivery.DeliveryWorker
+import com.example.smsforwarder.rules.DestinationType
 import com.example.smsforwarder.rules.Rule
 import com.example.smsforwarder.rules.RuleMatcher
 import com.google.gson.Gson
@@ -14,7 +18,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 
+@Immutable
 data class DryRunResult(
     val isMatched: Boolean,
     val matchReason: String,
@@ -41,23 +47,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ruleDao.insertRule(ruleEntity)
             } else {
                 val oldRule = rules.value.find { it.id == ruleEntity.id }
-                if (oldRule != null && oldRule.name != ruleEntity.name) {
-                    deliveryDao.updateRuleNameSnapshotByRuleId(ruleEntity.id, ruleEntity.name)
-                    deliveryDao.updateRuleNameSnapshotByOldName(oldRule.name, ruleEntity.name)
-                }
-                ruleDao.updateRule(ruleEntity)
+                ruleDao.updateRuleAndSnapshots(ruleEntity, oldRule?.name, deliveryDao)
             }
         }
     }
 
     fun toggleRuleEnabled(ruleEntity: RuleEntity) {
         viewModelScope.launch {
-            ruleDao.updateRule(ruleEntity.copy(enabled = !ruleEntity.enabled))
+            val newEnabled = !ruleEntity.enabled
+            if (!newEnabled) {
+                deliveryDao.cancelPendingDeliveriesForRule(ruleEntity.id)
+                WorkManager.getInstance(getApplication()).cancelAllWorkByTag("rule_${ruleEntity.id}")
+            }
+            ruleDao.updateRule(ruleEntity.copy(enabled = newEnabled))
         }
     }
 
     fun deleteRule(ruleEntity: RuleEntity) {
         viewModelScope.launch {
+            deliveryDao.cancelPendingDeliveriesForRule(ruleEntity.id)
+            WorkManager.getInstance(getApplication()).cancelAllWorkByTag("rule_${ruleEntity.id}")
             ruleDao.deleteRule(ruleEntity)
         }
     }
@@ -73,15 +82,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun resendDelivery(deliveryId: Long) {
+        viewModelScope.launch {
+            val delivery = deliveryDao.getDeliveryById(deliveryId) ?: return@launch
+            deliveryDao.resetDeliveryForResend(deliveryId)
+
+            val requiresNetwork = delivery.destinationType == DestinationType.URL
+            val constraintsBuilder = Constraints.Builder()
+            if (requiresNetwork) {
+                constraintsBuilder.setRequiredNetworkType(NetworkType.CONNECTED)
+            }
+
+            val workRequest = OneTimeWorkRequestBuilder<DeliveryWorker>()
+                .setConstraints(constraintsBuilder.build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.SECONDS)
+                .addTag("delivery_$deliveryId")
+                .addTag("rule_${delivery.ruleId}")
+                .setInputData(workDataOf("deliveryId" to deliveryId))
+                .build()
+
+            WorkManager.getInstance(getApplication()).enqueueUniqueWork(
+                "delivery_$deliveryId",
+                ExistingWorkPolicy.REPLACE,
+                workRequest
+            )
+        }
+    }
+
     fun cancelDelivery(deliveryId: Long) {
         viewModelScope.launch {
             deliveryDao.cancelDelivery(deliveryId)
+            WorkManager.getInstance(getApplication()).cancelUniqueWork("delivery_$deliveryId")
         }
     }
 
     fun clearAllLogs() {
         viewModelScope.launch {
             deliveryDao.clearAllDeliveries()
+            WorkManager.getInstance(getApplication()).cancelAllWork()
+            WorkManager.getInstance(getApplication()).pruneWork()
         }
     }
 

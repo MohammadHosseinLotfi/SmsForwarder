@@ -3,7 +3,6 @@ package com.example.smsforwarder.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,28 +36,21 @@ fun DashboardScreen(
 ) {
     val today = remember { timestampToJalali(System.currentTimeMillis()) }
 
-    val todayDeliveries = remember(deliveries, today) {
-        deliveries.filter {
-            timestampToJalali(it.receivedAt).isSameDay(today.year, today.month, today.day)
+    val (succeededTodayCount, pendingTodayCount, errorTodayCount) = remember(deliveries, today) {
+        var succ = 0
+        var pend = 0
+        var err = 0
+        for (delivery in deliveries) {
+            val jalali = timestampToJalali(delivery.receivedAt)
+            if (jalali.isSameDay(today.year, today.month, today.day)) {
+                when (delivery.state) {
+                    DeliveryState.SUCCEEDED -> succ++
+                    DeliveryState.QUEUED, DeliveryState.WAITING_NETWORK, DeliveryState.IN_FLIGHT, DeliveryState.RETRY_WAIT -> pend++
+                    DeliveryState.BLOCKED, DeliveryState.NEEDS_REVIEW, DeliveryState.UNKNOWN, DeliveryState.CANCELLED -> err++
+                }
+            }
         }
-    }
-
-    val succeededTodayCount = remember(todayDeliveries) {
-        todayDeliveries.count { it.state == DeliveryState.SUCCEEDED }
-    }
-
-    val pendingTodayCount = remember(todayDeliveries) {
-        todayDeliveries.count {
-            it.state == DeliveryState.QUEUED || it.state == DeliveryState.WAITING_NETWORK ||
-            it.state == DeliveryState.IN_FLIGHT || it.state == DeliveryState.RETRY_WAIT
-        }
-    }
-
-    val errorTodayCount = remember(todayDeliveries) {
-        todayDeliveries.count {
-            it.state == DeliveryState.BLOCKED || it.state == DeliveryState.NEEDS_REVIEW ||
-            it.state == DeliveryState.UNKNOWN || it.state == DeliveryState.CANCELLED
-        }
+        Triple(succ, pend, err)
     }
 
     val activeRuleCount = remember(rules) { rules.count { it.enabled } }
@@ -164,7 +156,7 @@ fun DashboardScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(top = 4.dp, bottom = 84.dp)
             ) {
-                items(rules, key = { it.id }) { rule ->
+                items(rules, key = { it.id }, contentType = { "compact_rule_card" }) { rule ->
                     CompactRuleCard(
                         rule = rule,
                         onToggle = { onToggleRule(rule) },

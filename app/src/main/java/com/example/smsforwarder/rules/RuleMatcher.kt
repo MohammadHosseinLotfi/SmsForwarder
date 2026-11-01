@@ -5,6 +5,7 @@ import com.google.gson.Gson
 object RuleMatcher {
 
     private val gson = Gson()
+    private val WHITESPACE_REGEX = Regex("\\s+")
 
     /**
      * بررسی برقراری شرط AND یک قانون روی فرستنده و متن دریافتی
@@ -90,8 +91,9 @@ object RuleMatcher {
             .replace('ي', 'ی')
             .replace('ك', 'ک')
             .replace('\u200C', ' ') // نیم‌فاصله به فاصله معمولی
-            .replace(Regex("\\s+"), " ") // تجمیع فاصله‌ها و خطوط متوالی
+            .replace(WHITESPACE_REGEX, " ") // تجمیع فاصله‌ها و خطوط متوالی
             .trim()
+            .lowercase()
     }
 
     private fun convertDigitsToLatin(str: String): String {

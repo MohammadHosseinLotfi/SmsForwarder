@@ -1,10 +1,12 @@
 package com.example.smsforwarder.data
 
+import androidx.compose.runtime.Immutable
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.example.smsforwarder.rules.DestinationType
 
+@Immutable
 @Entity(
     tableName = "deliveries",
     indices = [
@@ -19,6 +21,7 @@ data class DeliveryEntity(
     val ruleNameSnapshot: String,
     val eventFingerprint: String,
     val senderRaw: String,
+    val contentRaw: String = "",
     val receivedAt: Long = System.currentTimeMillis(),
     val destinationType: DestinationType,
     val destinationAddress: String,
@@ -27,9 +30,6 @@ data class DeliveryEntity(
     val state: DeliveryState = DeliveryState.QUEUED,
     val attemptCount: Int = 0,
     val lastAttemptAt: Long? = null,
+    val httpStatusCode: Int? = null,
     val errorMessage: String? = null
 )
-
-private val DeliveryEntity.httpCode: Int? get() = httpStatus
-private val DeliveryEntity.sentAtMillis: Long get() = lastAttemptAt
-private val DeliveryEntity.smsText: String get() = contentRaw

@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.smsforwarder.data.RuleEntity
 import com.example.smsforwarder.ui.MainViewModel
@@ -111,8 +112,8 @@ fun SmsForwarderApp(
 fun MainAppContent(
     viewModel: MainViewModel
 ) {
-    val rules by viewModel.rules.collectAsState()
-    val deliveries by viewModel.deliveries.collectAsState()
+    val rules by viewModel.rules.collectAsStateWithLifecycle()
+    val deliveries by viewModel.deliveries.collectAsStateWithLifecycle()
 
     var currentScreen by remember { mutableStateOf<AppScreen>(AppScreen.Dashboard) }
     var showMiuiGuide by remember { mutableStateOf(false) }
@@ -330,6 +331,7 @@ fun MainAppContent(
             } else {
                 HorizontalPager(
                     state = pagerState,
+                    beyondViewportPageCount = 1,
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
                     when (page) {
@@ -365,6 +367,7 @@ fun MainAppContent(
                                 logsFilterToday = false
                             },
                             onCancelDelivery = { viewModel.cancelDelivery(it) },
+                            onResendDelivery = { viewModel.resendDelivery(it) },
                             onClearAllLogs = { viewModel.clearAllLogs() }
                         )
                     }

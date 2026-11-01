@@ -1,10 +1,13 @@
 package com.example.smsforwarder.rules
 
+import androidx.compose.runtime.Immutable
+
 enum class DestinationType {
     SMS,
     URL
 }
 
+@Immutable
 data class Rule(
     val id: Long = 0,
     val name: String,

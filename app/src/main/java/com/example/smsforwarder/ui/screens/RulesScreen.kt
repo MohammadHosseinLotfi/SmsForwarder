@@ -27,7 +27,7 @@ fun RulesScreen(
     onDuplicateRule: (RuleEntity) -> Unit,
     onDeleteRule: (RuleEntity) -> Unit,
     onAddNewRule: () -> Unit,
-    onShowMiuiGuide: () -> Unit
+    onShowMiuiGuide: () -> Unit = {}
 ) {
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -76,7 +76,7 @@ fun RulesScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(top = 4.dp, bottom = 84.dp)
                 ) {
-                    items(rules, key = { it.id }) { rule ->
+                    items(rules, key = { it.id }, contentType = { "rule_card" }) { rule ->
                         Box(modifier = Modifier.animateItem()) {
                             RuleCard(
                                 rule = rule,
@@ -225,8 +225,9 @@ fun RuleCard(
 
             KashiFlowDiagram(
                 senderText = if (isAllSenders) "همه فرستنده‌ها" else rule.sender.toPersianDigits(),
-                destinationText = rule.destinationAddress.toPersianDigits(),
-                destinationTypeLabel = if (rule.destinationType == DestinationType.URL) "وب‌هوک URL" else "پیامک SMS"
+                destinationText = if (rule.destinationType == DestinationType.URL) rule.destinationAddress else rule.destinationAddress.toPersianDigits(),
+                destinationTypeLabel = if (rule.destinationType == DestinationType.URL) "وب‌هوک URL" else "پیامک SMS",
+                isUrl = rule.destinationType == DestinationType.URL
             )
 
             Spacer(modifier = Modifier.height(10.dp))

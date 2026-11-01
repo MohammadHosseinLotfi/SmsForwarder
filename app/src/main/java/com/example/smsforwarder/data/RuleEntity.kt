@@ -1,9 +1,11 @@
 package com.example.smsforwarder.data
 
+import androidx.compose.runtime.Immutable
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.example.smsforwarder.rules.DestinationType
 
+@Immutable
 @Entity(tableName = "rules")
 data class RuleEntity(
     @PrimaryKey(autoGenerate = true)

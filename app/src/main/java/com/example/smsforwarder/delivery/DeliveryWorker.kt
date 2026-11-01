@@ -27,14 +27,15 @@ class DeliveryWorker(
 
         return when (delivery.destinationType) {
             DestinationType.URL -> {
-                val sendResult = HttpSender.sendPost(delivery.destinationAddress, delivery.renderedPayload)
+                val sendResult = HttpSender.sendPost(delivery.destinationAddress, delivery.renderedPayload, isQuickAttempt = false)
 
                 when (sendResult) {
                     is HttpSender.Result.Success -> {
                         deliveryDao.updateDeliveryStatus(
-                            deliveryId,
-                            DeliveryState.SUCCEEDED,
-                            System.currentTimeMillis()
+                            id = deliveryId,
+                            state = DeliveryState.SUCCEEDED,
+                            attemptTime = System.currentTimeMillis(),
+                            httpStatusCode = sendResult.code
                         )
                         Result.success()
                     }
@@ -46,10 +47,11 @@ class DeliveryWorker(
                         }
 
                         deliveryDao.updateDeliveryStatus(
-                            deliveryId,
-                            nextState,
-                            System.currentTimeMillis(),
-                            sendResult.message
+                            id = deliveryId,
+                            state = nextState,
+                            attemptTime = System.currentTimeMillis(),
+                            httpStatusCode = sendResult.code,
+                            error = sendResult.message
                         )
 
                         if (sendResult.isRetryable && runAttemptCount < 8) {
@@ -71,9 +73,9 @@ class DeliveryWorker(
                 when (smsResult) {
                     is SmsSender.SmsResult.Success -> {
                         deliveryDao.updateDeliveryStatus(
-                            deliveryId,
-                            DeliveryState.SUCCEEDED,
-                            System.currentTimeMillis()
+                            id = deliveryId,
+                            state = DeliveryState.SUCCEEDED,
+                            attemptTime = System.currentTimeMillis()
                         )
                         Result.success()
                     }
@@ -87,10 +89,10 @@ class DeliveryWorker(
                         }
 
                         deliveryDao.updateDeliveryStatus(
-                            deliveryId,
-                            nextState,
-                            System.currentTimeMillis(),
-                            smsResult.message
+                            id = deliveryId,
+                            state = nextState,
+                            attemptTime = System.currentTimeMillis(),
+                            error = smsResult.message
                         )
 
                         if (!smsResult.isBlocked && runAttemptCount < 8) {

@@ -4,33 +4,38 @@ import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.smsforwarder.data.DeliveryEntity
@@ -40,14 +45,37 @@ import com.example.smsforwarder.rules.DestinationType
 import com.example.smsforwarder.ui.components.*
 import com.example.smsforwarder.ui.theme.*
 import com.example.smsforwarder.ui.util.*
+import com.google.gson.GsonBuilder
+import com.google.gson.JsonParser
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 enum class LogFilter {
     ALL,
     SUCCEEDED,
     PENDING,
     ERROR
+}
+
+@Composable
+fun rememberSheetOverscrollBlocker(): NestedScrollConnection = remember {
+    object : NestedScrollConnection {
+        override fun onPostScroll(
+            consumed: Offset,
+            available: Offset,
+            source: NestedScrollSource
+        ): Offset {
+            return available
+        }
+
+        override suspend fun onPostFling(
+            consumed: Velocity,
+            available: Velocity
+        ): Velocity {
+            return available
+        }
+    }
 }
 
 @Composable
@@ -182,10 +210,20 @@ fun LogsScreen(
     }
 
     selectedDelivery?.let { selected ->
-        // Always render the live row so state changes (e.g. after «ارسال الان») show up inside the sheet.
-        val live = deliveries.firstOrNull { it.deliveryId == selected.deliveryId } ?: selected
+        val siblingDeliveries = remember(deliveries, selected) {
+            deliveries.filter {
+                it.ruleId == selected.ruleId &&
+                it.senderRaw == selected.senderRaw &&
+                it.contentRaw == selected.contentRaw &&
+                abs(it.receivedAt - selected.receivedAt) < 2000L
+            }.sortedBy { it.deliveryId }
+        }.ifEmpty { listOf(selected) }
+
+        val livePrimary = deliveries.firstOrNull { it.deliveryId == selected.deliveryId } ?: selected
+
         KashiReceiptDialog(
-            delivery = live,
+            delivery = livePrimary,
+            siblingDeliveries = siblingDeliveries,
             onCancelDelivery = onCancelDelivery,
             onResendDelivery = onResendDelivery,
             onDismiss = { selectedDelivery = null }
@@ -269,7 +307,6 @@ fun LogsScreen(
                     .padding(vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Right Box (Start in RTL - Jalali Date Filter)
                 Surface(
                     onClick = { showDatePicker = true },
                     shape = RoundedCornerShape(12.dp),
@@ -347,7 +384,6 @@ fun LogsScreen(
                     }
                 }
 
-                // Left Box (End in RTL - Rule Dropdown Filter)
                 Box(
                     modifier = Modifier.weight(1f)
                 ) {
@@ -655,11 +691,6 @@ fun StateBadge(state: DeliveryState) {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  رسید جزئیات ارسال — Full-width bottom sheet (+ nested «جزئیات درخواست» sheet)
-// ═══════════════════════════════════════════════════════════════════════════
-
-/** States where «ارسال الان» is offered. SUCCEEDED and IN_FLIGHT are excluded on purpose. */
 private val ResendableStates = setOf(
     DeliveryState.QUEUED,
     DeliveryState.WAITING_NETWORK,
@@ -670,7 +701,6 @@ private val ResendableStates = setOf(
     DeliveryState.CANCELLED
 )
 
-/** States that can still be cancelled from the sheet (existing behaviour, kept). */
 private val CancellableStates = setOf(
     DeliveryState.QUEUED,
     DeliveryState.WAITING_NETWORK,
@@ -684,7 +714,6 @@ private data class DestinationStatusUi(
     val container: Color
 )
 
-/** Collapses the 9 DeliveryState values into the 3 labels of the destination card (same grouping as the log filters). */
 private fun DeliveryState.toDestinationStatusUi(): DestinationStatusUi = when (this) {
     DeliveryState.SUCCEEDED ->
         DestinationStatusUi("رسید", KashiIcons.Success, KashiSuccessGreen, KashiSuccessContainer)
@@ -706,6 +735,7 @@ private fun DeliveryState.toDestinationStatusUi(): DestinationStatusUi = when (t
 @Composable
 fun KashiReceiptDialog(
     delivery: DeliveryEntity,
+    siblingDeliveries: List<DeliveryEntity> = listOf(delivery),
     onCancelDelivery: (Long) -> Unit,
     onResendDelivery: (Long) -> Unit,
     onDismiss: () -> Unit
@@ -713,25 +743,15 @@ fun KashiReceiptDialog(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { it != SheetValue.PartiallyExpanded }
+    )
 
-    var showRequestDetails by remember { mutableStateOf(false) }
-
-    // Disables «ارسال الان» until the row actually changes (or 5 s pass), so a double tap can't dispatch twice.
-    var resendRequested by remember(delivery.state, delivery.attemptCount) { mutableStateOf(false) }
-    LaunchedEffect(resendRequested) {
-        if (resendRequested) {
-            delay(5_000)
-            resendRequested = false
-        }
-    }
+    var selectedDetailsDelivery by remember { mutableStateOf<DeliveryEntity?>(null) }
 
     val jalali = remember(delivery.receivedAt) { timestampToJalali(delivery.receivedAt) }
-    val sentJalaliText = remember(delivery.lastAttemptAt) {
-        delivery.lastAttemptAt?.let { timestampToJalali(it).fullFormatted } ?: "هنوز ارسال نشده"
-    }
     val amount = remember(delivery.renderedPayload) { extractMoneyAmount(delivery.renderedPayload) }
-    val status = remember(delivery.state) { delivery.state.toDestinationStatusUi() }
 
     val isAllSenders = delivery.senderRaw.isBlank() || delivery.senderRaw.trim() == "*"
     val secondaryColor = MaterialTheme.colorScheme.secondary
@@ -744,8 +764,8 @@ fun KashiReceiptDialog(
         }
     }
 
-    val isUrl = delivery.destinationType == DestinationType.URL
-    val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.9f).dp
+    val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.92f).dp
+    val overscrollBlocker = rememberSheetOverscrollBlocker()
 
     val closeSheet: () -> Unit = {
         scope.launch { sheetState.hide() }.invokeOnCompletion {
@@ -758,26 +778,30 @@ fun KashiReceiptDialog(
         ModalBottomSheet(
             onDismissRequest = onDismiss,
             sheetState = sheetState,
+            sheetMaxWidth = Dp.Unspecified,
+            dragHandle = { KashiDragHandle() },
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            containerColor = MaterialTheme.colorScheme.background
+            containerColor = MaterialTheme.colorScheme.background,
+            contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = maxSheetHeight)
+                    .nestedScroll(overscrollBlocker)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp)
                     .navigationBarsPadding()
                     .padding(bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // ── Header: title (right) + close (left) ──────────────────────────
-                ReceiptSheetHeader(title = "جزئیات ارسال", onClose = closeSheet)
+                // Header + Status Badge
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ReceiptSheetHeader(title = "جزئیات ارسال", onClose = closeSheet)
+                    StateBadge(state = delivery.state)
+                }
 
-                // ── Status badge ─────────────────────────────────────────────────
-                StateBadge(state = delivery.state)
-
-                // ── Basic metadata ───────────────────────────────────────────────
+                // Basic metadata
                 ReceiptCard {
                     ReceiptRow(label = "نام قانون", value = delivery.ruleNameSnapshot)
 
@@ -830,188 +854,239 @@ fun KashiReceiptDialog(
                     }
                 }
 
-                // ── Destination section ──────────────────────────────────────────
-                ReceiptSectionTitle("ارسال به مقصد")
+                // Destination section
+                val destSectionTitle = if (siblingDeliveries.size > 1) {
+                    "ارسال به مقصدها (${siblingDeliveries.size.toPersianDigits()} مقصد)"
+                } else {
+                    "ارسال به مقصد"
+                }
 
-                ReceiptCard {
-                    // header: [icon + «مقصد»] (right)  …  [HTTP code + status text] (left)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(status.container),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = status.icon,
-                                    contentDescription = null,
-                                    tint = status.tint,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            Text(
-                                text = "مقصد",
-                                fontFamily = VazirmatnFontFamily,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
+                ReceiptSectionTitle(destSectionTitle)
+
+                siblingDeliveries.forEachIndexed { index, itemDelivery ->
+                    val itemIsUrl = itemDelivery.destinationType == DestinationType.URL
+                    val itemStatus = remember(itemDelivery.state) { itemDelivery.state.toDestinationStatusUi() }
+                    val itemSentJalaliText = remember(itemDelivery.lastAttemptAt) {
+                        itemDelivery.lastAttemptAt?.let { timestampToJalali(it).fullFormatted } ?: "هنوز ارسال نشده"
+                    }
+
+                    var resendRequested by remember(itemDelivery.state, itemDelivery.attemptCount) { mutableStateOf(false) }
+                    LaunchedEffect(resendRequested) {
+                        if (resendRequested) {
+                            delay(5_000)
+                            resendRequested = false
                         }
+                    }
 
+                    ReceiptCard {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            delivery.httpStatusCode?.let { code ->
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                    shape = RoundedCornerShape(6.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(itemStatus.container),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = code.toPersianDigits(),
-                                        fontFamily = VazirmatnFontFamily,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    Icon(
+                                        imageVector = itemStatus.icon,
+                                        contentDescription = null,
+                                        tint = itemStatus.tint,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    val cardTitle = if (siblingDeliveries.size > 1) {
+                                        "مقصد ${(index + 1).toPersianDigits()} (${if (itemIsUrl) "وب‌هوک" else "پیامک"})"
+                                    } else {
+                                        "مقصد"
+                                    }
+                                    Text(
+                                        text = cardTitle,
+                                        fontFamily = VazirmatnFontFamily,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+
+                                    if (itemIsUrl) {
+                                        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                                            Text(
+                                                text = itemDelivery.destinationAddress,
+                                                fontFamily = VazirmatnFontFamily,
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                            text = itemDelivery.destinationAddress.toPersianDigits(),
+                                            fontFamily = VazirmatnFontFamily,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
                             }
-                            Text(
-                                text = status.label,
-                                fontFamily = VazirmatnFontFamily,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = status.tint
-                            )
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                itemDelivery.httpStatusCode?.let { code ->
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = code.toPersianDigits(),
+                                            fontFamily = VazirmatnFontFamily,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = itemStatus.label,
+                                    fontFamily = VazirmatnFontFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = itemStatus.tint
+                                )
+                            }
                         }
-                    }
 
-                    // transmission date & time
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = KashiIcons.Calendar,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = sentJalaliText,
-                            fontFamily = VazirmatnFontFamily,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    if (!delivery.errorMessage.isNullOrBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = KashiErrorContainer,
-                            border = BorderStroke(1.dp, KashiErrorRose.copy(alpha = 0.4f)),
-                            modifier = Modifier.fillMaxWidth()
+                        // transmission date & time
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            Icon(
+                                imageVector = KashiIcons.Calendar,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp)
+                            )
                             Text(
-                                text = "علت خطا: ${delivery.errorMessage}",
+                                text = itemSentJalaliText,
                                 fontFamily = VazirmatnFontFamily,
                                 fontSize = 12.sp,
-                                color = KashiErrorRose,
-                                modifier = Modifier.padding(8.dp)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    }
 
-                    // «مشاهده درخواست» → second sheet slides up over this one
-                    OutlinedButton(
-                        onClick = { showRequestDetails = true },
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isUrl) KashiIcons.Webhook else KashiIcons.ChatSquare,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            "مشاهده درخواست",
-                            fontFamily = VazirmatnFontFamily,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
-                    // «ارسال الان» — failed / queued / blocked / needs-review… (see ResendableStates)
-                    if (delivery.state in ResendableStates) {
-                        Button(
-                            onClick = {
-                                resendRequested = true
-                                onResendDelivery(delivery.deliveryId)
-                                Toast.makeText(context, "درخواست ارسال مجدد ثبت شد", Toast.LENGTH_SHORT).show()
-                            },
-                            enabled = !resendRequested,
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                        ) {
-                            if (resendRequested) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = LocalContentColor.current
-                                )
-                            } else {
+                        if (!itemDelivery.errorMessage.isNullOrBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = KashiErrorContainer,
+                                border = BorderStroke(1.dp, KashiErrorRose.copy(alpha = 0.4f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
                                 Text(
-                                    "ارسال الان",
+                                    text = "علت خطا: ${itemDelivery.errorMessage}",
                                     fontFamily = VazirmatnFontFamily,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontSize = 12.sp,
+                                    color = KashiErrorRose,
+                                    modifier = Modifier.padding(8.dp)
                                 )
                             }
                         }
-                    }
 
-                    // existing feature kept: cancel a pending delivery
-                    if (delivery.state in CancellableStates) {
+                        // «مشاهده جزئیات» Button
                         OutlinedButton(
-                            onClick = {
-                                onCancelDelivery(delivery.deliveryId)
-                                closeSheet()
-                            },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                            onClick = { selectedDetailsDelivery = itemDelivery },
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(44.dp)
                         ) {
-                            Icon(KashiIcons.XCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(
+                                imageVector = if (itemIsUrl) KashiIcons.Webhook else KashiIcons.ChatSquare,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                "لغو این ارسال در صف",
+                                "مشاهده جزئیات",
                                 fontFamily = VazirmatnFontFamily,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
+                        }
+
+                        // «ارسال الان» Button
+                        if (itemDelivery.state in ResendableStates) {
+                            Button(
+                                onClick = {
+                                    resendRequested = true
+                                    onResendDelivery(itemDelivery.deliveryId)
+                                    Toast.makeText(context, "درخواست ارسال مجدد ثبت شد", Toast.LENGTH_SHORT).show()
+                                },
+                                enabled = !resendRequested,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                            ) {
+                                if (resendRequested) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = LocalContentColor.current
+                                    )
+                                } else {
+                                    Text(
+                                        "ارسال الان",
+                                        fontFamily = VazirmatnFontFamily,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        // Cancel Button
+                        if (itemDelivery.state in CancellableStates) {
+                            OutlinedButton(
+                                onClick = {
+                                    onCancelDelivery(itemDelivery.deliveryId)
+                                    closeSheet()
+                                },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                            ) {
+                                Icon(KashiIcons.XCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "لغو این ارسال در صف",
+                                    fontFamily = VazirmatnFontFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }
 
-                // ── SMS text section ─────────────────────────────────────────────
+                // SMS text section
                 ReceiptSectionTitle("متن پیامک")
 
                 Surface(
@@ -1022,7 +1097,6 @@ fun KashiReceiptDialog(
                 ) {
                     SelectionContainer {
                         Text(
-                            // shown exactly as received (OTP digits are NOT converted)
                             text = delivery.contentRaw,
                             fontFamily = VazirmatnFontFamily,
                             fontSize = 14.sp,
@@ -1043,7 +1117,6 @@ fun KashiReceiptDialog(
                     Button(
                         onClick = {
                             clipboardManager.setText(AnnotatedString(delivery.contentRaw))
-                            // Android 13+ already shows its own "copied" confirmation
                             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
                                 Toast.makeText(context, "متن پیامک کپی شد", Toast.LENGTH_SHORT).show()
                             }
@@ -1070,12 +1143,11 @@ fun KashiReceiptDialog(
             }
         }
 
-        // Declared after the first sheet → its window sits on top of it.
-        if (showRequestDetails) {
+        selectedDetailsDelivery?.let { detailsDelivery ->
             KashiRequestDetailsSheet(
-                delivery = delivery,
+                delivery = detailsDelivery,
                 maxSheetHeight = maxSheetHeight,
-                onDismiss = { showRequestDetails = false }
+                onDismiss = { selectedDetailsDelivery = null }
             )
         }
     }
@@ -1092,11 +1164,19 @@ private fun KashiRequestDetailsSheet(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { it != SheetValue.PartiallyExpanded }
+    )
 
     val isUrl = delivery.destinationType == DestinationType.URL
     val sentJalaliText = remember(delivery.lastAttemptAt) {
         delivery.lastAttemptAt?.let { timestampToJalali(it).fullFormatted } ?: "هنوز ارسال نشده"
+    }
+    val overscrollBlocker = rememberSheetOverscrollBlocker()
+
+    val formattedPayload = remember(delivery.renderedPayload, isUrl) {
+        formatAndHighlightPayload(delivery.renderedPayload, isUrl)
     }
 
     val closeSheet: () -> Unit = {
@@ -1108,20 +1188,24 @@ private fun KashiRequestDetailsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        sheetMaxWidth = Dp.Unspecified,
+        dragHandle = { KashiDragHandle() },
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = maxSheetHeight)
+                .nestedScroll(overscrollBlocker)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding()
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            ReceiptSheetHeader(title = "جزئیات درخواست", onClose = closeSheet)
+            ReceiptSheetHeader(title = "جزئیات ارسال به مقصد", onClose = closeSheet)
 
             ReceiptCard {
                 RequestDetailField(
@@ -1133,7 +1217,6 @@ private fun KashiRequestDetailsSheet(
 
                 RequestDetailField(
                     label = if (isUrl) "نشانی مقصد" else "شماره مقصد",
-                    // URLs stay raw + LTR (digits must remain copy/readable); phone numbers get Persian digits
                     value = if (isUrl) delivery.destinationAddress else delivery.destinationAddress.toPersianDigits(),
                     ltr = isUrl
                 )
@@ -1171,24 +1254,39 @@ private fun KashiRequestDetailsSheet(
                     }
                 }
 
-                // Raw payload in a monospace, LTR code block (no digit conversion)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .background(KashiDeepSlate)
-                        .padding(10.dp)
+                        .padding(12.dp)
                 ) {
-                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                        SelectionContainer {
-                            Text(
-                                text = delivery.renderedPayload,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = KashiSkyTurquoise,
-                                softWrap = !isUrl,
-                                modifier = if (isUrl) Modifier.horizontalScroll(rememberScrollState()) else Modifier
-                            )
+                    if (isUrl) {
+                        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                            SelectionContainer {
+                                Text(
+                                    text = formattedPayload,
+                                    fontSize = 12.sp,
+                                    lineHeight = 18.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    softWrap = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    } else {
+                        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                            SelectionContainer {
+                                Text(
+                                    text = delivery.renderedPayload,
+                                    fontSize = 13.sp,
+                                    lineHeight = 22.sp,
+                                    fontFamily = VazirmatnFontFamily,
+                                    color = KashiSkyTurquoise,
+                                    softWrap = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                         }
                     }
                 }
@@ -1207,9 +1305,81 @@ private fun KashiRequestDetailsSheet(
     }
 }
 
-// ───────────────────────────── shared building blocks ─────────────────────────────
+private fun formatAndHighlightPayload(rawPayload: String, isJson: Boolean): AnnotatedString {
+    val trimmed = rawPayload.trim()
+    val shouldPrettyJson = isJson || trimmed.startsWith("{") || trimmed.startsWith("[")
 
-/** Title on the start side (right in RTL), close icon on the end side (left in RTL). */
+    if (shouldPrettyJson) {
+        val formattedJson = try {
+            val jsonElement = JsonParser.parseString(trimmed)
+            GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create().toJson(jsonElement)
+        } catch (_: Exception) {
+            rawPayload
+        }
+        return highlightJsonSyntax(formattedJson)
+    }
+
+    return AnnotatedString(rawPayload)
+}
+
+private fun highlightJsonSyntax(json: String): AnnotatedString {
+    val builder = AnnotatedString.Builder()
+    val regex = Regex("""("(?:\\.|[^"\\])*")|(\b\d+\b|true|false|null)|([{}:,\[\]])""")
+    var lastIndex = 0
+
+    for (match in regex.findAll(json)) {
+        if (match.range.first > lastIndex) {
+            builder.append(json.substring(lastIndex, match.range.first))
+        }
+        val text = match.value
+        val keyOrString = match.groups[1]
+        val numberOrBool = match.groups[2]
+        val symbol = match.groups[3]
+
+        when {
+            keyOrString != null -> {
+                val remaining = json.substring(match.range.last + 1).trimStart()
+                if (remaining.startsWith(":")) {
+                    builder.addStyle(
+                        SpanStyle(color = Firoozeh300, fontWeight = FontWeight.Bold),
+                        builder.length,
+                        builder.length + text.length
+                    )
+                } else {
+                    builder.addStyle(
+                        SpanStyle(color = Pesteh400),
+                        builder.length,
+                        builder.length + text.length
+                    )
+                }
+                builder.append(text)
+            }
+            numberOrBool != null -> {
+                builder.addStyle(
+                    SpanStyle(color = Zafaran400),
+                    builder.length,
+                    builder.length + text.length
+                )
+                builder.append(text)
+            }
+            symbol != null -> {
+                builder.addStyle(
+                    SpanStyle(color = Shab300),
+                    builder.length,
+                    builder.length + text.length
+                )
+                builder.append(text)
+            }
+            else -> builder.append(text)
+        }
+        lastIndex = match.range.last + 1
+    }
+    if (lastIndex < json.length) {
+        builder.append(json.substring(lastIndex))
+    }
+    return builder.toAnnotatedString()
+}
+
 @Composable
 private fun ReceiptSheetHeader(title: String, onClose: () -> Unit) {
     Row(
@@ -1224,12 +1394,15 @@ private fun ReceiptSheetHeader(title: String, onClose: () -> Unit) {
             fontWeight = FontWeight.ExtraBold,
             color = MaterialTheme.colorScheme.onSurface
         )
-        IconButton(onClick = onClose) {
+        IconButton(
+            onClick = onClose,
+            modifier = Modifier.size(32.dp)
+        ) {
             Icon(
                 imageVector = KashiIcons.XCircle,
                 contentDescription = "بستن",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier.size(20.dp)
             )
         }
     }

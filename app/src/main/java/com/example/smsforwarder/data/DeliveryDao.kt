@@ -29,6 +29,9 @@ interface DeliveryDao {
     @Query("UPDATE deliveries SET state = 'CANCELLED' WHERE deliveryId = :id")
     suspend fun cancelDelivery(id: Long)
 
+    @Query("UPDATE deliveries SET state = 'CANCELLED', errorMessage = 'لغو شده به دلیل توقف سرویس توسط کاربر' WHERE state IN ('QUEUED', 'WAITING_NETWORK', 'IN_FLIGHT', 'RETRY_WAIT')")
+    suspend fun cancelAllPendingDeliveries()
+
     @Query("SELECT COUNT(*) FROM deliveries WHERE ruleId = :ruleId AND state IN ('QUEUED', 'WAITING_NETWORK', 'IN_FLIGHT', 'RETRY_WAIT')")
     suspend fun countPendingDeliveriesForRule(ruleId: Long): Int
 

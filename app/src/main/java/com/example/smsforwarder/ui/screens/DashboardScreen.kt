@@ -1,5 +1,7 @@
 package com.example.smsforwarder.ui.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -29,6 +31,8 @@ import com.example.smsforwarder.ui.util.*
 fun DashboardScreen(
     rules: List<RuleEntity>,
     deliveries: List<DeliveryEntity>,
+    isServiceEnabled: Boolean = true,
+    onToggleServiceEnabled: (Boolean) -> Unit = {},
     onToggleRule: (RuleEntity) -> Unit,
     onEditRule: (RuleEntity) -> Unit,
     onNavigateToLogsWithFilter: (LogFilter) -> Unit,
@@ -63,6 +67,14 @@ fun DashboardScreen(
         KashiPageHeader(title = "داشبورد")
 
         Spacer(modifier = Modifier.height(4.dp))
+
+        // Master Service Control Switch Card
+        ServiceMasterSwitchCard(
+            isServiceEnabled = isServiceEnabled,
+            onToggleService = onToggleServiceEnabled
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Today's Delivery Statistics Row
         Row(
@@ -164,6 +176,103 @@ fun DashboardScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun ServiceMasterSwitchCard(
+    isServiceEnabled: Boolean,
+    onToggleService: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val containerColor by animateColorAsState(
+        targetValue = if (isServiceEnabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        animationSpec = tween(220),
+        label = "service_card_bg"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isServiceEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outline,
+        animationSpec = tween(220),
+        label = "service_card_border"
+    )
+    val iconBoxBg by animateColorAsState(
+        targetValue = if (isServiceEnabled) KashiSuccessContainer else KashiErrorContainer,
+        animationSpec = tween(220),
+        label = "service_icon_bg"
+    )
+    val accentColor by animateColorAsState(
+        targetValue = if (isServiceEnabled) KashiSuccessGreen else KashiErrorRose,
+        animationSpec = tween(220),
+        label = "service_accent"
+    )
+
+    Surface(
+        onClick = { onToggleService(!isServiceEnabled) },
+        shape = RoundedCornerShape(16.dp),
+        color = containerColor,
+        border = BorderStroke(1.2.dp, borderColor),
+        shadowElevation = if (isServiceEnabled) 2.dp else 0.dp,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(iconBoxBg),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isServiceEnabled) KashiIcons.Workflow else KashiIcons.XCircle,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = if (isServiceEnabled) "سرویس انتقال پیامک فعال است" else "سرویس انتقال پیامک متوقف است",
+                        fontFamily = VazirmatnFontFamily,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (isServiceEnabled) {
+                            "دریافت و هدایت خودکار پیامک‌ها بر اساس قوانین فعال"
+                        } else {
+                            "هیچ پیامکی خوانده یا ارسال نمی‌شود (توقف کامل)"
+                        },
+                        fontFamily = VazirmatnFontFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isServiceEnabled) MaterialTheme.colorScheme.onSurfaceVariant else KashiErrorRose
+                    )
+                }
+            }
+
+            Switch(
+                checked = isServiceEnabled,
+                onCheckedChange = { onToggleService(it) },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                    checkedTrackColor = MaterialTheme.colorScheme.primary
+                ),
+                modifier = Modifier.scale(0.85f)
+            )
         }
     }
 }

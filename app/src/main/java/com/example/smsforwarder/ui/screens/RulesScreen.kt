@@ -11,13 +11,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.smsforwarder.data.RuleEntity
-import com.example.smsforwarder.rules.DestinationType
+import com.example.smsforwarder.data.getDestinations
 import com.example.smsforwarder.ui.components.*
 import com.example.smsforwarder.ui.theme.VazirmatnFontFamily
 import com.example.smsforwarder.ui.util.*
+import com.google.gson.Gson
 
 @Composable
 fun RulesScreen(
@@ -74,7 +76,7 @@ fun RulesScreen(
             } else {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(top = 4.dp, bottom = 84.dp)
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 108.dp)
                 ) {
                     items(rules, key = { it.id }, contentType = { "rule_card" }) { rule ->
                         Box(modifier = Modifier.animateItem()) {
@@ -103,16 +105,10 @@ fun RuleCard(
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
+    val gson = remember { Gson() }
+    val destinations = remember(rule.destinationsJson) { rule.getDestinations(gson) }
+
     val isAllSenders = rule.sender.isBlank() || rule.sender.trim() == "*"
-    val secondaryColor = MaterialTheme.colorScheme.secondary
-    val onSecondaryColor = MaterialTheme.colorScheme.onSecondary
-    val senderBadge = remember(rule.sender, secondaryColor, onSecondaryColor) {
-        if (isAllSenders) {
-            SenderBadgeInfo("همه فرستنده‌ها", secondaryColor, onSecondaryColor)
-        } else {
-            detectSenderBadge(rule.sender)
-        }
-    }
 
     if (showDeleteConfirm) {
         AlertDialog(
@@ -175,40 +171,24 @@ fun RuleCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
+            // Row 1: Top Title & Switch
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Text(
+                    text = rule.name,
+                    fontFamily = VazirmatnFontFamily,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (rule.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = rule.name,
-                        fontFamily = VazirmatnFontFamily,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (rule.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
-                    )
+                )
 
-                    senderBadge?.let { badge ->
-                        Surface(
-                            color = badge.backgroundColor,
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Text(
-                                text = badge.label,
-                                fontFamily = VazirmatnFontFamily,
-                                color = badge.textColor,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                }
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Switch(
                     checked = rule.enabled,
@@ -223,69 +203,63 @@ fun RuleCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            // Row 2: Flow Diagram Box
             KashiFlowDiagram(
                 senderText = if (isAllSenders) "همه فرستنده‌ها" else rule.sender.toPersianDigits(),
-                destinationText = if (rule.destinationType == DestinationType.URL) rule.destinationAddress else rule.destinationAddress.toPersianDigits(),
-                destinationTypeLabel = if (rule.destinationType == DestinationType.URL) "وب‌هوک URL" else "پیامک SMS",
-                isUrl = rule.destinationType == DestinationType.URL
+                destinations = destinations
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            // Row 3: Filter & Extra Destinations Metadata Row
+            val hasFilter = !rule.containsText.isNullOrBlank()
+            val extraDestCount = if (destinations.size > 2) destinations.size - 2 else 0
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (!rule.containsText.isNullOrBlank()) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            if (hasFilter || extraDestCount > 0) {
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (hasFilter) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(
-                                imageVector = KashiIcons.Filter,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = "فیلتر: «${rule.containsText.toPersianDigits()}»",
-                                fontFamily = VazirmatnFontFamily,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.secondary
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = KashiIcons.Filter,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "فیلتر: «${rule.containsText.toPersianDigits()}»",
+                                    fontFamily = VazirmatnFontFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
                         }
                     }
-                }
 
-                if (rule.destinationType == DestinationType.SMS) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    if (extraDestCount > 0) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(
-                                imageVector = KashiIcons.SimCard,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(14.dp)
-                            )
                             Text(
-                                text = "سیم‌کارت ${(rule.outgoingSlotIndex + 1).toPersianDigits()}",
+                                text = "+${extraDestCount.toPersianDigits()} مقصد دیگر",
                                 fontFamily = VazirmatnFontFamily,
+                                color = MaterialTheme.colorScheme.secondary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                     }
@@ -293,53 +267,64 @@ fun RuleCard(
             }
 
             HorizontalDivider(
-                modifier = Modifier.padding(vertical = 10.dp),
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
             )
 
+            // Row 4: Compact Footer Action Buttons (RTL: Edit on Right, Copy/Delete on Left)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(
                     onClick = onEdit,
-                    contentPadding = PaddingValues(horizontal = 8.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    modifier = Modifier.height(34.dp)
                 ) {
                     Icon(
                         imageVector = KashiIcons.Edit,
                         contentDescription = "ویرایش",
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("ویرایش", fontFamily = VazirmatnFontFamily, fontSize = 13.sp)
+                    Text("ویرایش", fontFamily = VazirmatnFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 }
 
-                TextButton(
-                    onClick = onDuplicate,
-                    contentPadding = PaddingValues(horizontal = 8.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(
-                        imageVector = KashiIcons.Copy,
-                        contentDescription = "کپی",
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("کپی", fontFamily = VazirmatnFontFamily, fontSize = 13.sp)
-                }
+                    TextButton(
+                        onClick = onDuplicate,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = KashiIcons.Copy,
+                            contentDescription = "کپی",
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("کپی", fontFamily = VazirmatnFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.secondary)
+                    }
 
-                TextButton(
-                    onClick = { showDeleteConfirm = true },
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Icon(
-                        imageVector = KashiIcons.Trash,
-                        contentDescription = "حذف",
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("حذف", fontFamily = VazirmatnFontFamily, fontSize = 13.sp)
+                    TextButton(
+                        onClick = { showDeleteConfirm = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = KashiIcons.Trash,
+                            contentDescription = "حذف",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("حذف", fontFamily = VazirmatnFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }

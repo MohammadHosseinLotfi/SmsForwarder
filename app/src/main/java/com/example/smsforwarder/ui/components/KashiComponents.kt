@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.smsforwarder.rules.DestinationType
+import com.example.smsforwarder.rules.RuleDestination
 import com.example.smsforwarder.ui.theme.*
 import com.example.smsforwarder.ui.util.*
 import kotlinx.coroutines.delay
@@ -36,6 +37,26 @@ enum class KashiInputKind {
     SENDER,
     MOBILE,
     URL
+}
+
+/**
+ * نوار کشیدن شیت‌های پایین (KashiDragHandle)
+ */
+@Composable
+fun KashiDragHandle() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 36.dp, height = 4.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.outline)
+        )
+    }
 }
 
 /**
@@ -88,7 +109,10 @@ fun KashiBrandTopBar(
                     )
                 }
 
-                KashiStatusPill(text = "سرویس فعال", isActive = isServiceActive)
+                KashiStatusPill(
+                    text = if (isServiceActive) "سرویس فعال" else "سرویس غیرفعال",
+                    isActive = isServiceActive
+                )
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         }
@@ -243,7 +267,6 @@ fun KashiSplashLoader(
 
     val infiniteTransition = rememberInfiniteTransition(label = "radar_splash")
 
-    // موج راداری اول
     val wave1Progress by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -254,7 +277,6 @@ fun KashiSplashLoader(
         label = "wave1"
     )
 
-    // موج راداری دوم (با اختلاف فاز)
     val wave2Progress by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -265,7 +287,6 @@ fun KashiSplashLoader(
         label = "wave2"
     )
 
-    // تپش نرم هسته مرکزی
     val coreScale by infiniteTransition.animateFloat(
         initialValue = 0.94f,
         targetValue = 1.05f,
@@ -289,12 +310,10 @@ fun KashiSplashLoader(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // بخش گرافیکی رادار پیامک
             Box(
                 modifier = Modifier.size(136.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // حلقه موج اول (فیروزه‌ای)
                 Box(
                     modifier = Modifier
                         .size(72.dp)
@@ -309,7 +328,6 @@ fun KashiSplashLoader(
                         .border(1.5.dp, primaryColor.copy(alpha = 0.65f), CircleShape)
                 )
 
-                // حلقه موج دوم (لاجوردی)
                 Box(
                     modifier = Modifier
                         .size(72.dp)
@@ -324,7 +342,6 @@ fun KashiSplashLoader(
                         .border(1.5.dp, secondaryColor.copy(alpha = 0.55f), CircleShape)
                 )
 
-                // دایره مرکزی آیکون پیامک
                 Box(
                     modifier = Modifier
                         .size(74.dp)
@@ -344,7 +361,6 @@ fun KashiSplashLoader(
                     )
                 }
 
-                // بج کوچک نشانگر انتقال در لبه پایین هسته
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -365,7 +381,6 @@ fun KashiSplashLoader(
                     }
                 }
 
-                // نقطه سبز سیگنال فعال در بالا
                 Surface(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -379,7 +394,6 @@ fun KashiSplashLoader(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // عنوان اصلی فارسی
             Text(
                 text = "اسمس فورواردر",
                 fontFamily = VazirmatnFontFamily,
@@ -390,7 +404,6 @@ fun KashiSplashLoader(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // تگ انگلیسی نام اپ
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer,
                 shape = RoundedCornerShape(8.dp),
@@ -409,7 +422,6 @@ fun KashiSplashLoader(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // زیرعنوان
             Text(
                 text = "انتقال هوشمند و خودکار پیامک‌ها",
                 fontFamily = VazirmatnFontFamily,
@@ -710,8 +722,8 @@ fun KashiEmptyState(
 ) {
     Box(
         modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
+            .fillMaxWidth()
+            .padding(vertical = 16.dp, horizontal = 12.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -723,25 +735,25 @@ fun KashiEmptyState(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(96.dp)
+                        .size(72.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
                 )
                 Box(
                     modifier = Modifier
-                        .size(72.dp)
+                        .size(54.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primaryContainer)
                 )
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier.size(28.dp),
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Text(
                 text = title,
@@ -751,7 +763,7 @@ fun KashiEmptyState(
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             Text(
                 text = description,
@@ -762,7 +774,7 @@ fun KashiEmptyState(
             )
 
             if (actionLabel != null && onAction != null) {
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(14.dp))
                 Button(
                     onClick = onAction,
                     shape = RoundedCornerShape(12.dp)
@@ -784,6 +796,8 @@ fun KashiStatusPill(
     text: String = "سرویس فعال",
     isActive: Boolean = true
 ) {
+    val displayText = if (isActive) text else "سرویس غیرفعال"
+
     val infiniteTransition = rememberInfiniteTransition(label = "pulsing_dot")
     val alphaAnim by infiniteTransition.animateFloat(
         initialValue = 0.3f,
@@ -795,10 +809,15 @@ fun KashiStatusPill(
         label = "alpha"
     )
 
+    val bgColor = if (isActive) KashiSuccessContainer else KashiErrorContainer
+    val borderColor = if (isActive) KashiSuccessGreen.copy(alpha = 0.45f) else KashiErrorRose.copy(alpha = 0.4f)
+    val dotColor = if (isActive) KashiSuccessGreen else KashiErrorRose
+    val textColor = if (isActive) KashiSuccessGreen else KashiErrorRose
+
     Surface(
-        color = if (isActive) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        color = bgColor,
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, if (isActive) MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline)
+        border = BorderStroke(1.dp, borderColor)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -813,15 +832,15 @@ fun KashiStatusPill(
                         scaleY = s
                     }
                     .clip(CircleShape)
-                    .background(if (isActive) KashiSuccessGreen else Color.Gray)
+                    .background(dotColor)
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = text,
+                text = displayText,
                 fontFamily = VazirmatnFontFamily,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (isActive) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+                color = textColor
             )
         }
     }
@@ -900,17 +919,19 @@ fun KashiBanner(
 }
 
 /**
- * نمودار جریان بصری داخل کارت قانون (KashiFlowDiagram)
+ * نمودار جریان بصری داخل کارت قانون (KashiFlowDiagram) با پشتیبانی از نمایش تا ۲ مقصد
  */
 @Composable
 fun KashiFlowDiagram(
     senderText: String,
-    destinationText: String,
-    destinationTypeLabel: String,
-    isUrl: Boolean = false
+    destinations: List<RuleDestination>,
+    modifier: Modifier = Modifier
 ) {
+    val displayDestinations = destinations.take(2)
+    val totalCount = destinations.size
+
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
@@ -948,36 +969,88 @@ fun KashiFlowDiagram(
             }
 
             Column(
-                modifier = Modifier.weight(1.2f),
-                horizontalAlignment = Alignment.End
+                modifier = Modifier.weight(1.3f),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("مقصد ($destinationTypeLabel)", fontFamily = VazirmatnFontFamily, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (isUrl) {
-                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                        Text(
-                            text = destinationText,
-                            fontFamily = VazirmatnFontFamily,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.secondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                } else {
+                val headerLabel = if (totalCount <= 1) "مقصد" else "مقصدها"
+
+                Text(headerLabel, fontFamily = VazirmatnFontFamily, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                if (displayDestinations.isEmpty()) {
                     Text(
-                        text = destinationText,
+                        text = "بدون مقصد",
                         fontFamily = VazirmatnFontFamily,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.secondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        color = MaterialTheme.colorScheme.error
                     )
+                } else {
+                    displayDestinations.forEach { dest ->
+                        val isUrl = dest.destinationType == DestinationType.URL
+                        val icon = if (isUrl) KashiIcons.Globe else KashiIcons.Mail
+                        val addressDisplay = if (isUrl) dest.destinationAddress else dest.destinationAddress.toPersianDigits()
+                        val textAlpha = if (dest.enabled) 1f else 0.45f
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (isUrl) {
+                                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                                    Text(
+                                        text = addressDisplay,
+                                        fontFamily = VazirmatnFontFamily,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.secondary.copy(alpha = textAlpha),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = addressDisplay,
+                                    fontFamily = VazirmatnFontFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.secondary.copy(alpha = textAlpha),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                            }
+
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary.copy(alpha = textAlpha),
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+/**
+ * Overload تک‌مقصدی جهت سازگاری
+ */
+@Composable
+fun KashiFlowDiagram(
+    senderText: String,
+    destinationText: String,
+    destinationTypeLabel: String,
+    isUrl: Boolean = false
+) {
+    val legacyType = if (isUrl) DestinationType.URL else DestinationType.SMS
+    KashiFlowDiagram(
+        senderText = senderText,
+        destinations = listOf(RuleDestination(destinationType = legacyType, destinationAddress = destinationText))
+    )
 }
 
 /**

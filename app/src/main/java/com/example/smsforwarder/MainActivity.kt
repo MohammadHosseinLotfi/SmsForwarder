@@ -114,6 +114,7 @@ fun MainAppContent(
 ) {
     val rules by viewModel.rules.collectAsStateWithLifecycle()
     val deliveries by viewModel.deliveries.collectAsStateWithLifecycle()
+    val isServiceEnabled by viewModel.isServiceEnabled.collectAsStateWithLifecycle()
 
     var currentScreen by remember { mutableStateOf<AppScreen>(AppScreen.Dashboard) }
     var showMiuiGuide by remember { mutableStateOf(false) }
@@ -144,7 +145,7 @@ fun MainAppContent(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (!isAddEditMode) {
-                KashiBrandTopBar()
+                KashiBrandTopBar(isServiceActive = isServiceEnabled)
             }
         },
         bottomBar = {
@@ -323,9 +324,6 @@ fun MainAppContent(
                         viewModel.saveRule(newRule)
                         currentScreen = AppScreen.Rules
                     },
-                    onRunDryRun = { rule, testSender, testContent ->
-                        viewModel.runDryRunTest(rule, testSender, testContent)
-                    },
                     onCancel = { currentScreen = AppScreen.Rules }
                 )
             } else {
@@ -338,6 +336,8 @@ fun MainAppContent(
                         0 -> DashboardScreen(
                             rules = rules,
                             deliveries = deliveries,
+                            isServiceEnabled = isServiceEnabled,
+                            onToggleServiceEnabled = { viewModel.setServiceEnabled(it) },
                             onToggleRule = { viewModel.toggleRuleEnabled(it) },
                             onEditRule = { rule -> currentScreen = AppScreen.AddEditRule(rule) },
                             onNavigateToLogsWithFilter = { filter ->

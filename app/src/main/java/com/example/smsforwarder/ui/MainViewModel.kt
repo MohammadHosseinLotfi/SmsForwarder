@@ -1,31 +1,22 @@
 package com.example.smsforwarder.ui
 
 import android.app.Application
-import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.*
 import com.example.smsforwarder.data.AppDatabase
 import com.example.smsforwarder.data.DeliveryEntity
 import com.example.smsforwarder.data.RuleEntity
+import com.example.smsforwarder.data.ServicePreferences
 import com.example.smsforwarder.delivery.DeliveryWorker
 import com.example.smsforwarder.rules.DestinationType
-import com.example.smsforwarder.rules.Rule
-import com.example.smsforwarder.rules.RuleMatcher
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
-
-@Immutable
-data class DryRunResult(
-    val isMatched: Boolean,
-    val matchReason: String,
-    val renderedOutput: String
-)
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -33,13 +24,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val ruleDao = db.ruleDao()
     private val deliveryDao = db.deliveryDao()
 
-    private val gson = Gson()
+    private val _isServiceEnabled = MutableStateFlow(ServicePreferences.isServiceEnabled(application))
+    val isServiceEnabled: StateFlow<Boolean> = _isServiceEnabled.asStateFlow()
+
+    init {
+        ServicePreferences.syncReceiverComponentState(application, _isServiceEnabled.value)
+    }
 
     val rules: StateFlow<List<RuleEntity>> = ruleDao.getAllRulesFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val deliveries: StateFlow<List<DeliveryEntity>> = deliveryDao.getAllDeliveriesFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setServiceEnabled(enabled: Boolean) {
+        if (_isServiceEnabled.value == enabled) return
+        _isServiceEnabled.value = enabled
+        val appContext = getApplication<Application>()
+        ServicePreferences.setServiceEnabled(appContext, enabled)
+
+        if (!enabled) {
+            viewModelScope.launch {
+                WorkManager.getInstance(appContext).cancelAllWork()
+                deliveryDao.cancelAllPendingDeliveries()
+            }
+        }
+    }
 
     fun saveRule(ruleEntity: RuleEntity) {
         viewModelScope.launch {
@@ -84,6 +94,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resendDelivery(deliveryId: Long) {
         viewModelScope.launch {
+            if (!_isServiceEnabled.value) return@launch
+
             val delivery = deliveryDao.getDeliveryById(deliveryId) ?: return@launch
             deliveryDao.resetDeliveryForResend(deliveryId)
 
@@ -122,53 +134,5 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             WorkManager.getInstance(getApplication()).cancelAllWork()
             WorkManager.getInstance(getApplication()).pruneWork()
         }
-    }
-
-    /**
-     * اجرای تست خشک (Dry Run) بدون انجام هیچ‌گونه درخواست واقعی شبکه یا SMS
-     */
-    fun runDryRunTest(
-        ruleEntity: RuleEntity,
-        testSender: String,
-        testContent: String
-    ): DryRunResult {
-        val mapType = TypeToken.getParameterized(Map::class.java, String::class.java, String::class.java).type
-        val jsonFields: Map<String, String> = try {
-            gson.fromJson(ruleEntity.jsonFieldsJson, mapType) ?: emptyMap()
-        } catch (_: Exception) {
-            emptyMap()
-        }
-
-        val rule = Rule(
-            id = ruleEntity.id,
-            name = ruleEntity.name,
-            enabled = true, // برای تست خشک، شرط فعال بودن را true در نظر می‌گیریم
-            sender = ruleEntity.sender,
-            containsText = ruleEntity.containsText,
-            destinationType = ruleEntity.destinationType,
-            destinationAddress = ruleEntity.destinationAddress,
-            outgoingSlotIndex = ruleEntity.outgoingSlotIndex,
-            smsTemplate = ruleEntity.smsTemplate,
-            jsonFields = jsonFields
-        )
-
-        val isMatched = RuleMatcher.matches(rule, testSender, testContent)
-        val reason = if (isMatched) {
-            if (ruleEntity.sender.isBlank() || ruleEntity.sender.trim() == "*") {
-                "فرستنده: همه فرستنده‌ها (بدون محدودیت)" + if (!ruleEntity.containsText.isNullOrBlank()) " و عبارت متنی تطبیق دارد." else "."
-            } else {
-                "شرط فرستنده و عبارت داخل متن تطبیق دارد."
-            }
-        } else {
-            "فرستنده یا عبارت داخل متن با شرط قانون تطبیق ندارد."
-        }
-
-        val output = if (isMatched) {
-            RuleMatcher.renderOutput(rule, testSender, testContent)
-        } else {
-            "عدم تطبیق - خروجی تولید نشد."
-        }
-
-        return DryRunResult(isMatched, reason, output)
     }
 }

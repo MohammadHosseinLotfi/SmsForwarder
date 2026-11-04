@@ -158,6 +158,28 @@ object KashiIcons {
         )
     }
 
+    val Globe: ImageVector by lazy {
+        kashiVector(
+            name = "Globe",
+            circles = listOf(Triple(10f, 10f, 7.5f)),
+            paths = listOf(
+                "M2.75 10h14.5",
+                "M10 2.5C7.8 5 6.5 7.4 6.5 10s1.3 5 3.5 7.5",
+                "M10 2.5c2.2 2.5 3.5 4.9 3.5 7.5s-1.3 5-3.5 7.5"
+            )
+        )
+    }
+
+    val Mail: ImageVector by lazy {
+        kashiVector(
+            name = "Mail",
+            paths = listOf(
+                "M4.5 4.25h11c1.4 0 2.25.85 2.25 2.25v7c0 1.4-.85 2.25-2.25 2.25h-11c-1.4 0-2.25-.85-2.25-2.25v-7c0-1.4.85-2.25 2.25-2.25Z",
+                "m3.5 6 5.55 4.16c.53.4 1.37.4 1.9 0L16.5 6"
+            )
+        )
+    }
+
     val ChatSquare: ImageVector by lazy {
         kashiVector(
             name = "ChatSquare",

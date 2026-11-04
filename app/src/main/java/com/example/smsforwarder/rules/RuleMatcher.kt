@@ -38,18 +38,18 @@ object RuleMatcher {
     }
 
     /**
-     * رندر قالب خروجی با جایگذاری متغیرهای {{sender}} و {{content}}
+     * رندر قالب خروجی برای یک مقصد مشخص
      */
-    fun renderOutput(rule: Rule, rawSender: String, rawContent: String): String {
-        return when (rule.destinationType) {
+    fun renderOutput(destination: RuleDestination, rawSender: String, rawContent: String): String {
+        return when (destination.destinationType) {
             DestinationType.SMS -> {
-                rule.smsTemplate
+                destination.smsTemplate
                     .replace("{{sender}}", rawSender)
                     .replace("{{content}}", rawContent)
             }
             DestinationType.URL -> {
                 val payloadMap = mutableMapOf<String, String>()
-                for ((key, templateValue) in rule.jsonFields) {
+                for ((key, templateValue) in destination.jsonFields) {
                     val renderedVal = templateValue
                         .replace("{{sender}}", rawSender)
                         .replace("{{content}}", rawContent)
@@ -58,6 +58,14 @@ object RuleMatcher {
                 gson.toJson(payloadMap)
             }
         }
+    }
+
+    /**
+     * رندر قالب خروجی با جایگذاری متغیرهای {{sender}} و {{content}} برای اولین مقصد قانون
+     */
+    fun renderOutput(rule: Rule, rawSender: String, rawContent: String): String {
+        val dest = rule.primaryDestination ?: RuleDestination()
+        return renderOutput(dest, rawSender, rawContent)
     }
 
     /**

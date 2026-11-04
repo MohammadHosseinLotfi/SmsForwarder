@@ -5,6 +5,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.smsforwarder.data.AppDatabase
 import com.example.smsforwarder.data.DeliveryState
+import com.example.smsforwarder.data.ServicePreferences
 import com.example.smsforwarder.rules.DestinationType
 import com.example.smsforwarder.sms.SmsSender
 
@@ -15,6 +16,15 @@ class DeliveryWorker(
 
     override suspend fun doWork(): Result {
         val deliveryId = inputData.getLong("deliveryId", -1L)
+
+        if (!ServicePreferences.isServiceEnabled(applicationContext)) {
+            if (deliveryId != -1L) {
+                val db = AppDatabase.getDatabase(applicationContext)
+                db.deliveryDao().cancelDelivery(deliveryId)
+            }
+            return Result.failure()
+        }
+
         if (deliveryId == -1L) return Result.failure()
 
         val db = AppDatabase.getDatabase(applicationContext)

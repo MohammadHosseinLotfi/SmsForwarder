@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [RuleEntity::class, DeliveryEntity::class], version = 2, exportSchema = false)
+@Database(entities = [RuleEntity::class, DeliveryEntity::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun ruleDao(): RuleDao
     abstract fun deliveryDao(): DeliveryDao
@@ -23,6 +23,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE rules ADD COLUMN destinationsJson TEXT NOT NULL DEFAULT '[]'")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -30,7 +36,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sms_forwarder_database"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

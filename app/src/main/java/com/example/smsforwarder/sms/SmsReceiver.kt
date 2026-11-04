@@ -9,13 +9,14 @@ import androidx.work.*
 import com.example.smsforwarder.data.AppDatabase
 import com.example.smsforwarder.data.DeliveryEntity
 import com.example.smsforwarder.data.DeliveryState
+import com.example.smsforwarder.data.ServicePreferences
+import com.example.smsforwarder.data.getDestinations
 import com.example.smsforwarder.delivery.DeliveryWorker
 import com.example.smsforwarder.delivery.HttpSender
 import com.example.smsforwarder.rules.DestinationType
 import com.example.smsforwarder.rules.Rule
 import com.example.smsforwarder.rules.RuleMatcher
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,6 +28,11 @@ class SmsReceiver : BroadcastReceiver() {
     private val gson = Gson()
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (!ServicePreferences.isServiceEnabled(context)) {
+            Log.d("SmsReceiver", "سرویس انتقال پیامک غیرفعال است؛ پیامک نادیده گرفته شد.")
+            return
+        }
+
         if (intent.action == Telephony.Sms.Intents.SMS_RECEIVED_ACTION) {
             val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
             if (messages.isNullOrEmpty()) return
@@ -53,100 +59,95 @@ class SmsReceiver : BroadcastReceiver() {
                     }
 
                     for (ruleEntity in activeRules) {
-                        val mapType = TypeToken.getParameterized(Map::class.java, String::class.java, String::class.java).type
-                        val jsonFields: Map<String, String> = try {
-                            gson.fromJson(ruleEntity.jsonFieldsJson, mapType) ?: emptyMap()
-                        } catch (_: Exception) {
-                            emptyMap()
-                        }
-
+                        val destinations = ruleEntity.getDestinations(gson)
                         val rule = Rule(
                             id = ruleEntity.id,
                             name = ruleEntity.name,
                             enabled = ruleEntity.enabled,
                             sender = ruleEntity.sender,
                             containsText = ruleEntity.containsText,
-                            destinationType = ruleEntity.destinationType,
-                            destinationAddress = ruleEntity.destinationAddress,
-                            outgoingSlotIndex = ruleEntity.outgoingSlotIndex,
-                            smsTemplate = ruleEntity.smsTemplate,
-                            jsonFields = jsonFields
+                            destinations = destinations
                         )
 
                         if (RuleMatcher.matches(rule, sender, fullBody)) {
-                            val renderedBody = RuleMatcher.renderOutput(rule, sender, fullBody)
-                            val fingerprint = generateFingerprint(sender, fullBody, messages[0].timestampMillis)
+                            for ((destIndex, destination) in rule.destinations.withIndex()) {
+                                if (!destination.enabled || destination.destinationAddress.isBlank()) continue
 
-                            val delivery = DeliveryEntity(
-                                ruleId = rule.id,
-                                ruleNameSnapshot = rule.name,
-                                eventFingerprint = fingerprint,
-                                senderRaw = sender,
-                                contentRaw = fullBody,
-                                destinationType = rule.destinationType,
-                                destinationAddress = rule.destinationAddress,
-                                renderedPayload = renderedBody,
-                                outgoingSlotIndex = rule.outgoingSlotIndex,
-                                state = DeliveryState.IN_FLIGHT
-                            )
+                                val renderedBody = RuleMatcher.renderOutput(destination, sender, fullBody)
+                                val fingerprintKey = "${destination.destinationType}_${destination.destinationAddress}_$destIndex"
+                                val fingerprint = generateFingerprint(sender, fullBody, messages[0].timestampMillis, fingerprintKey)
 
-                            val insertedId = deliveryDao.insertDelivery(delivery)
-                            if (insertedId == -1L) {
-                                Log.w("SmsReceiver", "رویداد تکراری (fingerprint + ruleId) نادیده گرفته شد")
-                                continue
-                            }
+                                val delivery = DeliveryEntity(
+                                    ruleId = rule.id,
+                                    ruleNameSnapshot = rule.name,
+                                    eventFingerprint = fingerprint,
+                                    senderRaw = sender,
+                                    contentRaw = fullBody,
+                                    destinationType = destination.destinationType,
+                                    destinationAddress = destination.destinationAddress,
+                                    renderedPayload = renderedBody,
+                                    outgoingSlotIndex = destination.outgoingSlotIndex,
+                                    state = DeliveryState.IN_FLIGHT
+                                )
 
-                            when (rule.destinationType) {
-                                DestinationType.URL -> {
-                                    val quickResult = HttpSender.sendPost(rule.destinationAddress, renderedBody, isQuickAttempt = true)
-                                    if (quickResult is HttpSender.Result.Success) {
-                                        Log.d("SmsReceiver", "ارسال سریع HTTP با موفقیت انجام شد (کد ${quickResult.code})")
-                                        deliveryDao.updateDeliveryStatus(
-                                            id = insertedId,
-                                            state = DeliveryState.SUCCEEDED,
-                                            attemptTime = System.currentTimeMillis(),
-                                            httpStatusCode = quickResult.code
-                                        )
-                                    } else {
-                                        Log.w("SmsReceiver", "ارسال سریع HTTP ناموفق بود؛ ثبت در صف WorkManager")
-                                        val failureMsg = (quickResult as? HttpSender.Result.Failure)?.message
-                                        deliveryDao.updateDeliveryStatus(
-                                            id = insertedId,
-                                            state = DeliveryState.WAITING_NETWORK,
-                                            attemptTime = System.currentTimeMillis(),
-                                            httpStatusCode = quickResult.code,
-                                            error = failureMsg
-                                        )
-                                        schedulePersistentWork(context, insertedId, rule.id, requiresNetwork = true)
-                                    }
+                                val insertedId = deliveryDao.insertDelivery(delivery)
+                                if (insertedId == -1L) {
+                                    Log.w("SmsReceiver", "رویداد تکراری (fingerprint + ruleId) نادیده گرفته شد")
+                                    continue
                                 }
-                                DestinationType.SMS -> {
-                                    val smsResult = SmsSender.sendSms(
-                                        context,
-                                        rule.destinationAddress,
-                                        renderedBody,
-                                        rule.outgoingSlotIndex
-                                    )
-                                    when (smsResult) {
-                                        is SmsSender.SmsResult.Success -> {
-                                            Log.d("SmsReceiver", "ارسال سریع پیامک با موفقیت انجام شد")
+
+                                when (destination.destinationType) {
+                                    DestinationType.URL -> {
+                                        val quickResult = HttpSender.sendPost(destination.destinationAddress, renderedBody, isQuickAttempt = true)
+                                        if (quickResult is HttpSender.Result.Success) {
+                                            Log.d("SmsReceiver", "ارسال سریع HTTP با موفقیت انجام شد (کد ${quickResult.code})")
                                             deliveryDao.updateDeliveryStatus(
                                                 id = insertedId,
                                                 state = DeliveryState.SUCCEEDED,
-                                                attemptTime = System.currentTimeMillis()
+                                                attemptTime = System.currentTimeMillis(),
+                                                httpStatusCode = quickResult.code
                                             )
-                                        }
-                                        is SmsSender.SmsResult.Failure -> {
-                                            Log.w("SmsReceiver", "ارسال پیامک ناموفق بود: ${smsResult.message}")
-                                            val targetState = if (smsResult.isBlocked) DeliveryState.BLOCKED else DeliveryState.RETRY_WAIT
+                                        } else {
+                                            Log.w("SmsReceiver", "ارسال سریع HTTP ناموفق بود؛ ثبت در صف WorkManager")
+                                            val failureMsg = (quickResult as? HttpSender.Result.Failure)?.message
                                             deliveryDao.updateDeliveryStatus(
                                                 id = insertedId,
-                                                state = targetState,
+                                                state = DeliveryState.WAITING_NETWORK,
                                                 attemptTime = System.currentTimeMillis(),
-                                                error = smsResult.message
+                                                httpStatusCode = quickResult.code,
+                                                error = failureMsg
                                             )
-                                            if (!smsResult.isBlocked) {
-                                                schedulePersistentWork(context, insertedId, rule.id, requiresNetwork = false)
+                                            schedulePersistentWork(context, insertedId, rule.id, requiresNetwork = true)
+                                        }
+                                    }
+                                    DestinationType.SMS -> {
+                                        val smsResult = SmsSender.sendSms(
+                                            context,
+                                            destination.destinationAddress,
+                                            renderedBody,
+                                            destination.outgoingSlotIndex
+                                        )
+                                        when (smsResult) {
+                                            is SmsSender.SmsResult.Success -> {
+                                                Log.d("SmsReceiver", "ارسال سریع پیامک با موفقیت انجام شد")
+                                                deliveryDao.updateDeliveryStatus(
+                                                    id = insertedId,
+                                                    state = DeliveryState.SUCCEEDED,
+                                                    attemptTime = System.currentTimeMillis()
+                                                )
+                                            }
+                                            is SmsSender.SmsResult.Failure -> {
+                                                Log.w("SmsReceiver", "ارسال پیامک ناموفق بود: ${smsResult.message}")
+                                                val targetState = if (smsResult.isBlocked) DeliveryState.BLOCKED else DeliveryState.RETRY_WAIT
+                                                deliveryDao.updateDeliveryStatus(
+                                                    id = insertedId,
+                                                    state = targetState,
+                                                    attemptTime = System.currentTimeMillis(),
+                                                    error = smsResult.message
+                                                )
+                                                if (!smsResult.isBlocked) {
+                                                    schedulePersistentWork(context, insertedId, rule.id, requiresNetwork = false)
+                                                }
                                             }
                                         }
                                     }
@@ -184,8 +185,8 @@ class SmsReceiver : BroadcastReceiver() {
         )
     }
 
-    private fun generateFingerprint(sender: String, body: String, timestamp: Long): String {
-        val raw = "$sender-$body-$timestamp"
+    private fun generateFingerprint(sender: String, body: String, timestamp: Long, extraKey: String = ""): String {
+        val raw = "$sender-$body-$timestamp-$extraKey"
         val bytes = MessageDigest.getInstance("MD5").digest(raw.toByteArray())
         return bytes.joinToString("") { "%02x".format(it) }
     }
